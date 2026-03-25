@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__Claude_Preview__preview_start",
+      "Bash(where python:*)",
+      "Bash(where python3:*)",
+      "Bash(where node:*)",
+      "Bash(where python3.exe)",
+      "Read(//c/Program Files/**)",
+      "Bash(ls C:/Python*)",
+      "Bash(\"C:/Users/facun/AppData/Local/Microsoft/WindowsApps/python3.exe\" --version)",
+      "Bash(where wscript:*)",
+      "Bash(where powershell:*)",
+      "Bash(powershell -Command \"Get-Command node,python,python3,php -ErrorAction SilentlyContinue | Select-Object Name,Source\")",
+      "Bash(powershell -Command \"Get-ChildItem ''C:\\\\'' -Recurse -Filter ''node.exe'' -ErrorAction SilentlyContinue -Depth 5 | Select-Object -First 3 FullName\")",
+      "Bash(\"C:/Program Files/World Monitor/sidecar/node/node.exe\" --version)"
+    ]
+  }
+}

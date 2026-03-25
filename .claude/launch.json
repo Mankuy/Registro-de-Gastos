@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "RegistroGastos",
+      "runtimeExecutable": "C:/Program Files/World Monitor/sidecar/node/node.exe",
+      "runtimeArgs": ["serve.js"],
+      "port": 3131
+    }
+  ]
+}

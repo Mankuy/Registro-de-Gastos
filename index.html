@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="es" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#7c3aed" />
+  <title>Gestor del Hogar</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+  <!-- LOGIN SCREEN OVERLAY -->
+  <div id="login-screen" class="login-screen">
+    <div class="login-card">
+      <div class="login-logo">🏠</div>
+      <h2 class="login-title">Gestor del Hogar</h2>
+      <p class="login-subtitle">Administrá las finanzas de tu hogar</p>
+
+      <div class="login-tabs">
+        <button class="login-tab active" id="tab-login-btn">Iniciar sesión</button>
+        <button class="login-tab" id="tab-register-btn">Crear cuenta</button>
+      </div>
+
+      <!-- Login form -->
+      <div id="login-form-wrap" class="login-form">
+        <div id="login-migration-notice" class="login-notice" hidden>
+          📦 Hay datos guardados. Iniciá sesión o creá una cuenta para acceder.
+        </div>
+        <label for="login-username">Usuario</label>
+        <input type="text" id="login-username" autocomplete="username" placeholder="tu usuario" />
+        <label for="login-password">Contraseña</label>
+        <input type="password" id="login-password" autocomplete="current-password" placeholder="tu contraseña" />
+        <button class="btn-login-submit" id="btn-login">Entrar</button>
+        <div id="login-error" class="login-error" hidden></div>
+      </div>
+
+      <!-- Register form -->
+      <div id="register-form-wrap" class="login-form" hidden>
+        <div id="register-migration-notice" class="login-notice" hidden>
+          📦 Se detectaron datos previos. Serán vinculados a tu nueva cuenta automáticamente.
+        </div>
+        <label for="reg-displayname">Nombre para mostrar</label>
+        <input type="text" id="reg-displayname" autocomplete="name" placeholder="Ej: Familia García" />
+        <label for="reg-username">Usuario</label>
+        <input type="text" id="reg-username" autocomplete="username" placeholder="Ej: familia" />
+        <label for="reg-password">Contraseña</label>
+        <input type="password" id="reg-password" autocomplete="new-password" placeholder="mínimo 4 caracteres" />
+        <label for="reg-password2">Confirmar contraseña</label>
+        <input type="password" id="reg-password2" autocomplete="new-password" placeholder="repetí la contraseña" />
+        <button class="btn-login-submit" id="btn-register">Crear cuenta</button>
+        <div id="register-error" class="login-error" hidden></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- APP HEADER -->
+  <header class="app-header">
+
+    <!-- Brand -->
+    <div class="header-brand">
+      <span class="header-icon">🏠</span>
+      <div>
+        <h1>Gestor del Hogar</h1>
+        <span class="header-month" id="header-month"></span>
+      </div>
+    </div>
+
+    <!-- ── Selector de Perfil ─────────────────────────── -->
+    <div class="profile-wrap" id="profile-wrap">
+      <button class="btn-profile" id="btn-profile" aria-haspopup="true" aria-expanded="false">
+        <span class="profile-avatar" id="profile-avatar">F</span>
+        <span class="profile-name-text" id="profile-display-name">Familia</span>
+        <span class="profile-caret">▾</span>
+      </button>
+      <!-- Dropdown poblado por JS -->
+      <div class="profile-menu" id="profile-menu" hidden role="menu"></div>
+    </div>
+
+    <!-- Acciones del header -->
+    <div class="header-actions">
+      <button class="btn-hdr" id="btn-dark-mode" title="Alternar modo oscuro">🌙</button>
+      <button class="btn-hdr" id="btn-ticket">📷 Ticket</button>
+      <button class="btn-hdr" id="btn-members">👥 Miembros</button>
+      <button class="btn-hdr" id="btn-export">↓ CSV</button>
+      <button class="btn-hdr" id="btn-export-pdf">↓ PDF</button>
+      <button class="btn-hdr" id="btn-historial">📜 Historial</button>
+      <button class="btn-hdr" id="btn-settings">⚙️ Config</button>
+      <button class="btn-hdr btn-hdr-primary" id="btn-add-month">+ Mes</button>
+    </div>
+
+  </header>
+
+  <!-- MONTH NAV -->
+  <nav class="month-nav" id="month-nav"></nav>
+
+  <!-- MAIN CONTENT -->
+  <main id="main-content" class="main-content">
+    <div class="empty-state" id="empty-state">
+      <div class="empty-icon">📅</div>
+      <p>Agregá un mes para comenzar</p>
+      <button class="btn-primary-lg" id="empty-add-month">+ Agregar primer mes</button>
+    </div>
+  </main>
+
+  <!-- MEMBERS DRAWER -->
+  <div class="overlay" id="members-overlay"></div>
+  <aside class="drawer" id="members-drawer">
+    <div class="drawer-head">
+      <h2>👥 Miembros del Hogar</h2>
+      <button class="btn-close" id="btn-close-members" aria-label="Cerrar">✕</button>
+    </div>
+    <div class="drawer-body">
+      <ul class="members-list" id="members-list"></ul>
+    </div>
+    <div class="drawer-foot">
+      <div class="inline-form">
+        <input type="text" id="new-member-input" placeholder="Nombre del miembro…" autocomplete="off" />
+        <button class="btn-confirm-sm" id="btn-add-member">Agregar</button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- OCR MODAL -->
+  <div class="modal-overlay" id="ocr-overlay">
+    <div class="modal" id="ocr-modal">
+      <div class="modal-head">
+        <h2>📷 Escáner de Ticket</h2>
+        <span class="ocr-ai-badge" id="ocr-ai-badge" hidden>🤖 IA activa</span>
+        <button class="btn-close" id="btn-close-ocr" aria-label="Cerrar">✕</button>
+      </div>
+      <div class="modal-body">
+
+        <div class="ocr-zone" id="ocr-zone">
+          <input type="file" id="ocr-file-camera" accept="image/*" capture="environment" hidden />
+          <input type="file" id="ocr-file-browse" accept="image/*" hidden />
+          <div class="ocr-zone-content" id="ocr-zone-content">
+            <div class="ocr-icon">📸</div>
+            <p>Arrastrá una imagen aquí o usá los botones</p>
+            <span class="ocr-drag-hint">💻 Arrastrá y soltá desde tu PC</span>
+            <div class="ocr-buttons">
+              <button type="button" class="ocr-btn-action" id="btn-ocr-camera">📷 Cámara</button>
+              <button type="button" class="ocr-btn-action secondary" id="btn-ocr-browse">📁 Archivo</button>
+            </div>
+          </div>
+          <img id="ocr-preview" class="ocr-preview-img" src="" alt="Preview del ticket" hidden />
+        </div>
+
+        <div class="ocr-progress-wrap" id="ocr-progress-wrap" hidden>
+          <div class="ocr-progress-bar-bg">
+            <div class="ocr-progress-bar" id="ocr-progress-bar" style="width:0%"></div>
+          </div>
+          <div class="ocr-progress-text" id="ocr-progress-text">Procesando imagen…</div>
+        </div>
+
+        <div class="ocr-result-wrap" id="ocr-result-wrap" hidden>
+          <div class="ocr-amount-detected">
+            <span class="ocr-amount-label">💵 Monto detectado:</span>
+            <span class="ocr-amount-value" id="ocr-amount-value">—</span>
+          </div>
+          <textarea id="ocr-raw-text" class="ocr-raw-text" placeholder="Texto extraído del ticket…" rows="4"></textarea>
+          <hr class="divider" />
+          <h3 class="ocr-add-title">Registrar como nuevo gasto</h3>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="field-label" for="ocr-category">Categoría</label>
+              <select id="ocr-category"></select>
+            </div>
+            <div class="form-group">
+              <label class="field-label" for="ocr-who">Quién</label>
+              <select id="ocr-who"></select>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="field-label" for="ocr-commerce">Comercio</label>
+              <input type="text" id="ocr-commerce" list="dl-commerces" placeholder="Comercio…" autocomplete="off" />
+            </div>
+            <div class="form-group">
+              <label class="field-label" for="ocr-amount-input">Monto ($)</label>
+              <input type="number" id="ocr-amount-input" min="0" step="0.01" placeholder="0.00" />
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="field-label" for="ocr-date">Fecha</label>
+              <input type="date" id="ocr-date" />
+            </div>
+            <div class="form-group">
+              <label class="field-label" for="ocr-payment-method">Medio de pago</label>
+              <input type="text" id="ocr-payment-method" list="dl-payment-methods" placeholder="Efectivo, Débito…" autocomplete="off" />
+            </div>
+          </div>
+        </div>
+
+      </div>
+      <div class="modal-foot" id="ocr-modal-foot" hidden>
+        <button class="btn-cancel" id="btn-ocr-cancel">Cancelar</button>
+        <button class="btn-confirm" id="btn-ocr-add-expense">Agregar Gasto</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- SETTINGS MODAL -->
+  <div class="modal-overlay" id="settings-overlay">
+    <div class="modal" id="settings-modal">
+      <div class="modal-head">
+        <h2>⚙️ Configuración</h2>
+        <button class="btn-close" id="btn-close-settings" aria-label="Cerrar">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="settings-section-title">🤖 IA para reconocimiento de tickets</p>
+        <p class="settings-section-desc">
+          Con tu API Key de <strong>Claude (Anthropic)</strong> la app reconoce los tickets con mucha más precisión.
+          La clave se guarda solo en este navegador.
+          <a href="https://console.anthropic.com/" target="_blank" rel="noopener">Obtener clave →</a>
+        </p>
+        <label class="field-label" for="settings-api-key">API Key de Claude (Anthropic)</label>
+        <input type="password" id="settings-api-key" placeholder="sk-ant-api03-…" autocomplete="off" />
+        <p class="settings-warning">⚠️ No compartas tu clave. Se guarda localmente sin cifrar. Solo usá en dispositivo personal.</p>
+        <div id="settings-api-status" class="settings-status none">Sin configurar — se usará Tesseract.js (OCR local)</div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn-cancel" id="btn-settings-cancel">Cancelar</button>
+        <button class="btn-danger" id="btn-settings-clear" style="margin-right:auto;">Limpiar clave</button>
+        <button class="btn-confirm" id="btn-settings-save">Guardar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- GENERIC MODAL -->
+  <div class="modal-overlay" id="modal-overlay">
+    <div class="modal" id="modal-box">
+      <div class="modal-head">
+        <h2 id="modal-title">Acción</h2>
+        <button class="btn-close" onclick="closeModal()" aria-label="Cerrar">✕</button>
+      </div>
+      <div class="modal-body" id="modal-body"></div>
+      <div class="modal-foot">
+        <button class="btn-cancel" onclick="closeModal()">Cancelar</button>
+        <button class="btn-confirm" id="modal-confirm">Confirmar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- TOAST -->
+  <div class="toast" id="toast"></div>
+
+  <!-- Datalists -->
+  <datalist id="dl-commerces"></datalist>
+  <datalist id="dl-payment-methods">
+    <option value="Efectivo"></option>
+    <option value="Tarjeta de débito"></option>
+    <option value="Tarjeta de crédito"></option>
+    <option value="Transferencia"></option>
+    <option value="QR / Digital"></option>
+  </datalist>
+
+  <!-- SCRIPTS -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.0.5/dist/tesseract.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js"></script>
+  <script src="app.js?v=8"></script>
+
+</body>
+</html>
