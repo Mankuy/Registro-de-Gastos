@@ -115,7 +115,6 @@ function getEffectiveGroupOrder() {
 
 const KEY_DARK_MODE = 'hogar_dark_mode';
 const KEY_LEGACY    = 'hogar_v2';          // viejo formato pre-perfiles
-const KEY_AUTH      = 'hogar_auth';        // { users: {...}, lastUsername }
 
 // Per-user profile keys (functions for dynamic keys)
 function _profilesKey(uid) { return 'hogar_profiles_' + uid; }
@@ -125,8 +124,8 @@ function _activeIdKey(uid) { return 'hogar_active_id_' + uid; }
 //  AUTH STATE
 // ════════════════════════════════════════════════════════════
 
-let authState     = { users: {}, lastUsername: '' };
 let currentUserId = null;
+let _pendingWelcome = null;
 
 // ════════════════════════════════════════════════════════════
 //  PROFILE / STATE
@@ -141,100 +140,43 @@ let currentMonth = null;
 //  AUTH FUNCTIONS
 // ════════════════════════════════════════════════════════════
 
-function loadAuth() {
-  try {
-    const raw = localStorage.getItem(KEY_AUTH);
-    authState = raw ? JSON.parse(raw) : { users: {}, lastUsername: '' };
-    if (!authState.users) authState.users = {};
-  } catch (e) {
-    authState = { users: {}, lastUsername: '' };
-  }
-}
-
-function saveAuth() {
-  localStorage.setItem(KEY_AUTH, JSON.stringify(authState));
-}
-
-function getSession() {
-  try {
-    const raw = localStorage.getItem('hogar_session');
-    if (!raw) return null;
-    const s = JSON.parse(raw);
-    return (s && s.userId) ? s.userId : null;
-  } catch (e) { return null; }
-}
-
-function saveSession(userId) {
-  localStorage.setItem('hogar_session', JSON.stringify({ userId }));
-}
-
-function clearSession() {
-  localStorage.removeItem('hogar_session');
-}
-
-async function hashPassword(password) {
-  try {
-    const msgBuffer  = new TextEncoder().encode(password);
-    const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
-    return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
-  } catch (e) {
-    // Fallback for non-secure contexts
-    let hash = 0;
-    for (let i = 0; i < password.length; i++) {
-      hash = ((hash << 5) - hash) + password.charCodeAt(i);
-      hash = hash & hash;
-    }
-    return 'fb_' + Math.abs(hash).toString(16).padStart(8, '0');
-  }
-}
-
-function _hasLegacyData() {
-  return !!(localStorage.getItem('hogar_profiles') || localStorage.getItem(KEY_LEGACY));
+// ── Firebase auth helpers ────────────────────────────────
+function _fbError(code) {
+  return ({
+    'auth/email-already-in-use': 'Ese usuario ya existe — elegió otro',
+    'auth/wrong-password':       'Contraseña incorrecta',
+    'auth/user-not-found':       'Usuario no encontrado',
+    'auth/invalid-credential':   'Usuario o contraseña incorrectos',
+    'auth/weak-password':        'La contraseña debe tener al menos 6 caracteres',
+    'auth/too-many-requests':    'Demasiados intentos. Esperá unos minutos.',
+  })[code] || 'Error de autenticación';
 }
 
 async function registerUser(username, displayName, password) {
   username    = (username || '').trim().toLowerCase();
   displayName = (displayName || '').trim() || username;
-  password    = password || '';
-  if (!username)         return { ok: false, error: 'Ingresá un nombre de usuario' };
-  if (!password)         return { ok: false, error: 'Ingresá una contraseña' };
-  if (password.length < 4) return { ok: false, error: 'La contraseña debe tener al menos 4 caracteres' };
-  if (Object.values(authState.users).find(u => u.username === username))
-    return { ok: false, error: 'Ese usuario ya existe — elegí otro' };
-
-  const userId      = 'u_' + Date.now();
-  const passwordHash = await hashPassword(password);
-
-  authState.users[userId]  = { id: userId, username, displayName, passwordHash };
-  authState.lastUsername   = username;
-  saveAuth();
-
-  // Migrate any existing global profiles to this user's key
-  const legacyProfiles  = localStorage.getItem('hogar_profiles');
-  const legacyActiveId  = localStorage.getItem('hogar_active_id');
-  if (legacyProfiles) {
-    localStorage.setItem(_profilesKey(userId), legacyProfiles);
-    if (legacyActiveId) localStorage.setItem(_activeIdKey(userId), legacyActiveId);
-  }
-
-  return { ok: true, userId };
+  if (!username) return { ok: false, error: 'Ingresá un nombre de usuario' };
+  if (!password) return { ok: false, error: 'Ingresá una contraseña' };
+  if (password.length < 6) return { ok: false, error: 'La contraseña debe tener al menos 6 caracteres' };
+  try {
+    const cred = await fbAuth.createUserWithEmailAndPassword(username + '@gestor.hogar', password);
+    await cred.user.updateProfile({ displayName });
+    localStorage.setItem('hogar_last_username', username);
+    return { ok: true, userId: cred.user.uid, displayName };
+  } catch(e) { return { ok: false, error: _fbError(e.code) }; }
 }
 
 async function loginUser(username, password) {
   username = (username || '').trim().toLowerCase();
-  const user = Object.values(authState.users).find(u => u.username === username);
-  if (!user) return { ok: false, error: 'Usuario no encontrado' };
-
-  const hash = await hashPassword(password);
-  if (hash !== user.passwordHash) return { ok: false, error: 'Contraseña incorrecta' };
-
-  authState.lastUsername = username;
-  saveAuth();
-  return { ok: true, userId: user.id };
+  try {
+    const cred = await fbAuth.signInWithEmailAndPassword(username + '@gestor.hogar', password);
+    localStorage.setItem('hogar_last_username', username);
+    return { ok: true, userId: cred.user.uid };
+  } catch(e) { return { ok: false, error: _fbError(e.code) }; }
 }
 
 function logoutUser() {
-  clearSession();
+  fbAuth.signOut();
   currentUserId = null;
   profiles = {};
   activeId = '';
@@ -251,23 +193,14 @@ function logoutUser() {
 function showLoginScreen() {
   const screen = document.getElementById('login-screen');
   if (screen) screen.classList.remove('hidden');
-
-  const hasLegacy = _hasLegacyData();
-  const noUsers   = Object.keys(authState.users).length === 0;
-
-  if (noUsers) {
-    switchLoginTab('register');
-    const notice = document.getElementById('register-migration-notice');
-    if (notice) notice.hidden = !hasLegacy;
-  } else {
+  const lastUser = localStorage.getItem('hogar_last_username') || '';
+  if (lastUser) {
     switchLoginTab('login');
-    const notice = document.getElementById('login-migration-notice');
-    if (notice) notice.hidden = !hasLegacy;
-    const usernameInput = document.getElementById('login-username');
-    if (usernameInput && authState.lastUsername) usernameInput.value = authState.lastUsername;
+    const inp = document.getElementById('login-username');
+    if (inp) inp.value = lastUser;
+  } else {
+    switchLoginTab('register');
   }
-
-  // Clear errors
   ['login-error', 'register-error'].forEach(id => {
     const el = document.getElementById(id);
     if (el) { el.hidden = true; el.textContent = ''; }
@@ -312,14 +245,7 @@ function initLoginScreen() {
     this.disabled    = false;
     this.textContent = 'Entrar';
 
-    if (result.ok) {
-      currentUserId = result.userId;
-      saveSession(result.userId);
-      initProfiles(result.userId);
-      renderProfileSelector();
-      renderAll();
-      hideLoginScreen();
-    } else {
+    if (!result.ok) {
       if (errorEl) { errorEl.textContent = result.error; errorEl.hidden = false; }
     }
   });
@@ -354,13 +280,7 @@ function initLoginScreen() {
     this.textContent = 'Crear cuenta';
 
     if (result.ok) {
-      currentUserId = result.userId;
-      saveSession(result.userId);
-      initProfiles(result.userId);
-      renderProfileSelector();
-      renderAll();
-      hideLoginScreen();
-      showToast('¡Bienvenid@ ' + (displayName || username) + '! 🎉');
+      _pendingWelcome = result.displayName || displayName || username;
     } else {
       if (errorEl) { errorEl.textContent = result.error; errorEl.hidden = false; }
     }
@@ -454,12 +374,15 @@ function loadProfiles() {
 
 function saveProfiles() {
   state.currentMonth = currentMonth;
+  profiles[activeId] = state;
   try {
-    profiles[activeId] = state;
     localStorage.setItem(_profilesKey(currentUserId), JSON.stringify(profiles));
     localStorage.setItem(_activeIdKey(currentUserId), activeId);
-  } catch (e) {
-    showToast('Error al guardar: almacenamiento lleno');
+  } catch(e) { showToast('Error al guardar: almacenamiento lleno'); }
+  if (currentUserId) {
+    db.collection('profiles').doc(currentUserId)
+      .set({ data: JSON.stringify(profiles), activeId })
+      .catch(() => {});
   }
 }
 
@@ -592,8 +515,8 @@ function renderProfileSelector() {
   avatarEl.textContent = name.charAt(0).toUpperCase();
   nameEl.textContent   = name;
 
-  const user = currentUserId && authState.users[currentUserId];
-  const userDisplay = user ? (user.displayName || user.username) : '';
+  const fbUser = fbAuth.currentUser;
+  const userDisplay = fbUser ? (fbUser.displayName || fbUser.email.split('@')[0] || '') : '';
 
   const profileItems = Object.values(profiles).map(p => `
     <button class="profile-menu-item${p.id === activeId ? ' active' : ''}"
@@ -2331,26 +2254,33 @@ document.addEventListener('DOMContentLoaded', function () {
 
   // ── Dark mode (antes de todo para evitar flash) ──────────
   initDarkMode();
-
-  // ── Cargar estado de autenticación ───────────────────────
-  loadAuth();
-
-  // ── Inicializar pantalla de login ────────────────────────
+  // ── Inicializar pantalla de login ─────────────────────────
   initLoginScreen();
 
-  // ── Verificar sesión activa ──────────────────────────────
-  const sessionUserId = getSession();
-  if (sessionUserId && authState.users[sessionUserId]) {
-    currentUserId = sessionUserId;
-    initProfiles(sessionUserId);
-    renderProfileSelector();
-    renderAll();
-    // El login screen empieza oculto si hay sesión
-    hideLoginScreen();
-  } else {
-    // Mostrar login screen
-    showLoginScreen();
-  }
+  // ── Firebase detecta sesión automáticamente ──────────
+  fbAuth.onAuthStateChanged(async (user) => {
+    if (user) {
+      currentUserId = user.uid;
+      try {
+        const doc = await db.collection('profiles').doc(user.uid).get();
+        if (doc.exists) {
+          const d = doc.data();
+          const parsed = typeof d.data === 'string' ? JSON.parse(d.data) : d.data;
+          if (parsed && Object.keys(parsed).length > 0) {
+            localStorage.setItem(_profilesKey(user.uid), JSON.stringify(parsed));
+            if (d.activeId) localStorage.setItem(_activeIdKey(user.uid), d.activeId);
+          }
+        }
+      } catch(e) {}
+      initProfiles(user.uid);
+      renderProfileSelector();
+      renderAll();
+      hideLoginScreen();
+      if (_pendingWelcome) { showToast('¡Bienvenid@ ' + _pendingWelcome + '! 🎉'); _pendingWelcome = null; }
+    } else {
+      showLoginScreen();
+    }
+  });
 
   // ── Dark mode button ─────────────────────────────────────
   document.getElementById('btn-dark-mode')?.addEventListener('click', toggleDarkMode);
