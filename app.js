@@ -114,9 +114,11 @@ function getEffectiveGroupOrder() {
 // ════════════════════════════════════════════════════════════
 
 const KEY_DARK_MODE = 'hogar_dark_mode';
-const KEY_LEGACY    = 'hogar_v2';          // viejo formato pre-perfiles
+const KEY_LEGACY    = 'hogar_v2';
 
-// Per-user profile keys (functions for dynamic keys)
+// FIX: dominio con TLD válido para Firebase Auth
+const FB_EMAIL_DOMAIN = '@gestor.hogar.app';
+
 function _profilesKey(uid) { return 'hogar_profiles_' + uid; }
 function _activeIdKey(uid) { return 'hogar_active_id_' + uid; }
 
@@ -140,15 +142,16 @@ let currentMonth = null;
 //  AUTH FUNCTIONS
 // ════════════════════════════════════════════════════════════
 
-// ── Firebase auth helpers ────────────────────────────────
 function _fbError(code) {
   return ({
-    'auth/email-already-in-use': 'Ese usuario ya existe — elegió otro',
+    'auth/email-already-in-use': 'Ese usuario ya existe — elegí otro',
     'auth/wrong-password':       'Contraseña incorrecta',
     'auth/user-not-found':       'Usuario no encontrado',
     'auth/invalid-credential':   'Usuario o contraseña incorrectos',
+    'auth/invalid-email':        'Nombre de usuario inválido — usá solo letras, números y guiones',
     'auth/weak-password':        'La contraseña debe tener al menos 6 caracteres',
     'auth/too-many-requests':    'Demasiados intentos. Esperá unos minutos.',
+    'auth/network-request-failed': 'Error de red. Verificá tu conexión.',
   })[code] || 'Error de autenticación';
 }
 
@@ -156,10 +159,12 @@ async function registerUser(username, displayName, password) {
   username    = (username || '').trim().toLowerCase();
   displayName = (displayName || '').trim() || username;
   if (!username) return { ok: false, error: 'Ingresá un nombre de usuario' };
+  if (!/^[a-z0-9._-]+$/.test(username)) return { ok: false, error: 'El usuario solo puede tener letras, números, puntos, guiones o guión bajo' };
   if (!password) return { ok: false, error: 'Ingresá una contraseña' };
   if (password.length < 6) return { ok: false, error: 'La contraseña debe tener al menos 6 caracteres' };
   try {
-    const cred = await fbAuth.createUserWithEmailAndPassword(username + '@gestor.hogar', password);
+    const email = username + FB_EMAIL_DOMAIN;
+    const cred = await fbAuth.createUserWithEmailAndPassword(email, password);
     await cred.user.updateProfile({ displayName });
     localStorage.setItem('hogar_last_username', username);
     return { ok: true, userId: cred.user.uid, displayName };
@@ -168,11 +173,22 @@ async function registerUser(username, displayName, password) {
 
 async function loginUser(username, password) {
   username = (username || '').trim().toLowerCase();
-  try {
-    const cred = await fbAuth.signInWithEmailAndPassword(username + '@gestor.hogar', password);
-    localStorage.setItem('hogar_last_username', username);
-    return { ok: true, userId: cred.user.uid };
-  } catch(e) { return { ok: false, error: _fbError(e.code) }; }
+  if (!username) return { ok: false, error: 'Ingresá tu usuario' };
+  if (!password) return { ok: false, error: 'Ingresá tu contraseña' };
+  // Intentar con dominio nuevo y viejo (compatibilidad con cuentas existentes)
+  const domains = [FB_EMAIL_DOMAIN, '@gestor.hogar'];
+  for (const domain of domains) {
+    try {
+      const cred = await fbAuth.signInWithEmailAndPassword(username + domain, password);
+      localStorage.setItem('hogar_last_username', username);
+      return { ok: true, userId: cred.user.uid };
+    } catch(e) {
+      if (e.code !== 'auth/user-not-found' && e.code !== 'auth/invalid-credential') {
+        return { ok: false, error: _fbError(e.code) };
+      }
+    }
+  }
+  return { ok: false, error: 'Usuario o contraseña incorrectos' };
 }
 
 function logoutUser() {
@@ -226,7 +242,6 @@ function switchLoginTab(tab) {
 }
 
 function initLoginScreen() {
-  // Tab switching
   document.getElementById('tab-login-btn')?.addEventListener('click', () => switchLoginTab('login'));
   document.getElementById('tab-register-btn')?.addEventListener('click', () => switchLoginTab('register'));
 
@@ -250,7 +265,6 @@ function initLoginScreen() {
     }
   });
 
-  // Enter key in login inputs
   ['login-username', 'login-password'].forEach(id => {
     document.getElementById(id)?.addEventListener('keydown', function (e) {
       if (e.key === 'Enter') document.getElementById('btn-login')?.click();
@@ -286,7 +300,6 @@ function initLoginScreen() {
     }
   });
 
-  // Enter key in register inputs
   ['reg-displayname', 'reg-username', 'reg-password', 'reg-password2'].forEach(id => {
     document.getElementById(id)?.addEventListener('keydown', function (e) {
       if (e.key === 'Enter') document.getElementById('btn-register')?.click();
@@ -295,14 +308,12 @@ function initLoginScreen() {
 }
 
 // ════════════════════════════════════════════════════════════
-//  MIGRATION — detecta datos viejos y los asocia al usuario
+//  MIGRATION
 // ════════════════════════════════════════════════════════════
 
 function runMigrationIfNeeded(userId) {
-  // Si ya hay perfiles para este usuario, no migrar
   if (localStorage.getItem(_profilesKey(userId))) return;
 
-  // Migrar perfiles globales (versión multi-perfil sin auth)
   const legacyProfiles = localStorage.getItem('hogar_profiles');
   if (legacyProfiles) {
     localStorage.setItem(_profilesKey(userId), legacyProfiles);
@@ -312,7 +323,6 @@ function runMigrationIfNeeded(userId) {
     return;
   }
 
-  // Migrar formato muy antiguo (hogar_v2)
   const raw = localStorage.getItem(KEY_LEGACY);
   if (!raw) return;
   let old;
@@ -330,7 +340,6 @@ function runMigrationIfNeeded(userId) {
     _expenseDefaults: FAMILIA_EXPENSE_ROWS
   };
 
-  // Garantizar campos nuevos en filas de egresos
   Object.values(familiaProfile.months).forEach(month => {
     if (month.expense) {
       month.expense.forEach(row => {
@@ -411,14 +420,12 @@ function activateProfile(id, doSave = true) {
   activeId = id;
   state    = profiles[id];
 
-  // Garantías de estructura
   if (!state.members)   state.members   = DEFAULT_MEMBERS.slice();
   if (!state.commerces) state.commerces = DEFAULT_COMMERCES.slice();
   if (!state.apiKey)    state.apiKey    = '';
   if (!state.months)    state.months    = {};
   if (!state.collapsed) state.collapsed = { income: false, expense: false, insights: false };
 
-  // Restaurar mes activo
   if (state.currentMonth && state.months[state.currentMonth]) {
     currentMonth = state.currentMonth;
   } else {
@@ -754,7 +761,7 @@ function renameCategory(type, index, newName) {
 }
 
 // ════════════════════════════════════════════════════════════
-//  GROUP BADGES (subcategorías de egresos)
+//  GROUP BADGES
 // ════════════════════════════════════════════════════════════
 
 function cycleGroup(type, index) {
@@ -788,7 +795,7 @@ function getGroupBadgeHTML(group, type, index) {
 }
 
 // ════════════════════════════════════════════════════════════
-//  COLLAPSIBLE SECTION CARDS
+//  COLLAPSIBLE SECTIONS
 // ════════════════════════════════════════════════════════════
 
 function toggleSection(name) {
@@ -1021,7 +1028,6 @@ function renderNav() {
   if (!nav) return;
   const keys = Object.keys(state.months);
   if (keys.length === 0) { nav.innerHTML = ''; return; }
-  // No duplicate "+ Mes" button here — it's already in the header
   nav.innerHTML = keys.map(k =>
     `<button class="month-tab${k === currentMonth ? ' active' : ''}" onclick="switchMonth(${JSON.stringify(k)})">${esc(k)}</button>`
   ).join('');
@@ -1255,7 +1261,7 @@ function renderTable(type, rows) {
 }
 
 // ════════════════════════════════════════════════════════════
-//  LIVE UPDATE (sin full re-render)
+//  LIVE UPDATE
 // ════════════════════════════════════════════════════════════
 
 let _liveTimer = null;
@@ -1303,7 +1309,6 @@ function calcInsights() {
   const totalIncome  = sum(month.income);
   const totalExpense = sum(month.expense);
 
-  // Spender
   const spenderMap = {};
   month.expense.forEach(row => {
     const val = parseFloat(row.value) || 0;
@@ -1315,7 +1320,6 @@ function calcInsights() {
   });
   if (topSpender === '__unassigned__') topSpender = 'Sin asignar';
 
-  // Commerce
   const commerceMap = {};
   month.expense.forEach(row => {
     const val = parseFloat(row.value) || 0;
@@ -1328,19 +1332,16 @@ function calcInsights() {
     if (amt > topCommerceAmt) { topCommerceAmt = amt; topCommerce = name; }
   });
 
-  // Category
   let topCategory = null, topCategoryAmt = 0;
   month.expense.forEach(row => {
     const val = parseFloat(row.value) || 0;
     if (val > topCategoryAmt) { topCategoryAmt = val; topCategory = row.name; }
   });
 
-  // Savings rate
   const savingsRate = totalIncome > 0
     ? ((totalIncome - totalExpense) / totalIncome) * 100
     : NaN;
 
-  // Alerts
   const alerts = [];
   if (totalExpense > 0) {
     month.expense.forEach(row => {
@@ -1354,7 +1355,6 @@ function calcInsights() {
   if (totalIncome === 0)
     alerts.push('ℹ️ No hay ingresos registrados aún');
 
-  // Group totals
   const groupTotals = {};
   month.expense.forEach(row => {
     const val = parseFloat(row.value) || 0;
@@ -1398,7 +1398,6 @@ function updateInsightCards() {
   if (el('insights-alerts'))
     el('insights-alerts').innerHTML = ins.alerts.map(a => `<div class="alert-item">${esc(a)}</div>`).join('');
 
-  // Group analysis
   const groupWrap = el('group-analysis-wrap');
   if (groupWrap) {
     const sortedGroups = Object.entries(ins.groupTotals).sort((a, b) => b[1] - a[1]);
@@ -1429,7 +1428,7 @@ function updateInsightCards() {
 }
 
 // ════════════════════════════════════════════════════════════
-//  CHARTS (Chart.js)
+//  CHARTS
 // ════════════════════════════════════════════════════════════
 
 let chartPie = null;
@@ -2102,7 +2101,6 @@ function exportPDF() {
   const today = new Date().toLocaleDateString('es-UY');
   const monthKeys = Object.keys(state.months).sort();
 
-  // Title
   doc.setFontSize(18);
   doc.setTextColor(124, 58, 237);
   doc.text('Gestor del Hogar — ' + profileName, 14, 18);
@@ -2118,14 +2116,12 @@ function exportPDF() {
     const totalExpense = sum(monthData.expense);
     const balance      = totalIncome - totalExpense;
 
-    // Month header
     doc.setFontSize(13);
     doc.setTextColor(40, 40, 40);
     if (y > 260) { doc.addPage(); y = 15; }
     doc.text(mk, 14, y);
     y += 2;
 
-    // Summary bar
     doc.setFontSize(8);
     doc.setTextColor(80, 80, 80);
     const balTxt = 'Ingresos: $' + totalIncome.toLocaleString('es-UY') +
@@ -2134,7 +2130,6 @@ function exportPDF() {
     doc.text(balTxt, 14, y + 4);
     y += 8;
 
-    // Income table
     if (monthData.income.length > 0) {
       const incRows = monthData.income
         .filter(r => parseFloat(r.value) > 0)
@@ -2154,7 +2149,6 @@ function exportPDF() {
       }
     }
 
-    // Expense table
     if (monthData.expense.length > 0) {
       const expRows = monthData.expense
         .filter(r => parseFloat(r.value) > 0)
@@ -2217,7 +2211,7 @@ function sum(arr) {
 }
 
 // ════════════════════════════════════════════════════════════
-//  GLOBAL EXPORTS (para inline HTML handlers)
+//  GLOBAL EXPORTS
 // ════════════════════════════════════════════════════════════
 
 window.switchMonth           = switchMonth;
@@ -2233,12 +2227,10 @@ window.closeModal            = closeModal;
 window.deleteCurrentMonth    = deleteCurrentMonth;
 window.toggleHistorial       = toggleHistorial;
 window.startMemberEdit       = startMemberEdit;
-// Multi-perfil
 window.switchProfile         = switchProfile;
 window.openNewProfileModal   = openNewProfileModal;
 window.openRenameProfileModal = openRenameProfileModal;
 window.deleteActiveProfile   = deleteActiveProfile;
-// Nuevas funciones
 window.cycleGroup            = cycleGroup;
 window.toggleSection         = toggleSection;
 window.logoutUser            = logoutUser;
@@ -2252,12 +2244,9 @@ window.openGroupsModal       = openGroupsModal;
 
 document.addEventListener('DOMContentLoaded', function () {
 
-  // ── Dark mode (antes de todo para evitar flash) ──────────
   initDarkMode();
-  // ── Inicializar pantalla de login ─────────────────────────
   initLoginScreen();
 
-  // ── Firebase detecta sesión automáticamente ──────────
   fbAuth.onAuthStateChanged(async (user) => {
     if (user) {
       currentUserId = user.uid;
@@ -2282,10 +2271,8 @@ document.addEventListener('DOMContentLoaded', function () {
     }
   });
 
-  // ── Dark mode button ─────────────────────────────────────
   document.getElementById('btn-dark-mode')?.addEventListener('click', toggleDarkMode);
 
-  // ── Profile selector ─────────────────────────────────────
   document.getElementById('btn-profile')?.addEventListener('click', function (e) {
     e.stopPropagation();
     toggleProfileMenu();
@@ -2296,7 +2283,6 @@ document.addEventListener('DOMContentLoaded', function () {
     }
   });
 
-  // ── Header buttons ───────────────────────────────────────
   document.getElementById('btn-add-month')?.addEventListener('click', openAddMonthModal);
   document.getElementById('btn-members')?.addEventListener('click', openMembersDrawer);
   document.getElementById('btn-export')?.addEventListener('click', exportCSV);
@@ -2305,7 +2291,6 @@ document.addEventListener('DOMContentLoaded', function () {
   document.getElementById('btn-historial')?.addEventListener('click', toggleHistorial);
   document.getElementById('btn-settings')?.addEventListener('click', openSettings);
 
-  // ── Members drawer ───────────────────────────────────────
   document.getElementById('btn-close-members')?.addEventListener('click', closeMembersDrawer);
   document.getElementById('members-overlay')?.addEventListener('click', closeMembersDrawer);
   document.getElementById('members-list')?.addEventListener('click', _handleMemberListClick);
@@ -2318,7 +2303,6 @@ document.addEventListener('DOMContentLoaded', function () {
     if (e.key === 'Enter') { e.preventDefault(); if (this.value.trim()) { addMember(this.value.trim()); this.value = ''; } }
   });
 
-  // ── OCR Modal ────────────────────────────────────────────
   document.getElementById('btn-close-ocr')?.addEventListener('click', closeOCRModal);
   document.getElementById('btn-ocr-cancel')?.addEventListener('click', closeOCRModal);
   document.getElementById('ocr-overlay')?.addEventListener('click', function (e) {
@@ -2356,7 +2340,6 @@ document.addEventListener('DOMContentLoaded', function () {
     });
   }
 
-  // ── Settings Modal ───────────────────────────────────────
   document.getElementById('btn-close-settings')?.addEventListener('click', closeSettings);
   document.getElementById('btn-settings-cancel')?.addEventListener('click', closeSettings);
   document.getElementById('btn-settings-save')?.addEventListener('click', saveSettings);
@@ -2365,7 +2348,6 @@ document.addEventListener('DOMContentLoaded', function () {
     if (e.target === this) closeSettings();
   });
 
-  // ── Generic Modal ─────────────────────────────────────────
   document.getElementById('modal-overlay')?.addEventListener('click', function (e) {
     if (e.target === this) closeModal();
   });
