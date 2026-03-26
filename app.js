@@ -157,7 +157,7 @@ function saveAuth() {
 
 function getSession() {
   try {
-    const raw = sessionStorage.getItem('hogar_session');
+    const raw = localStorage.getItem('hogar_session');
     if (!raw) return null;
     const s = JSON.parse(raw);
     return (s && s.userId) ? s.userId : null;
@@ -165,11 +165,11 @@ function getSession() {
 }
 
 function saveSession(userId) {
-  sessionStorage.setItem('hogar_session', JSON.stringify({ userId }));
+  localStorage.setItem('hogar_session', JSON.stringify({ userId }));
 }
 
 function clearSession() {
-  sessionStorage.removeItem('hogar_session');
+  localStorage.removeItem('hogar_session');
 }
 
 async function hashPassword(password) {
