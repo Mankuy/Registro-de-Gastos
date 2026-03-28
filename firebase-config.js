@@ -1,8 +1,7 @@
-// CONFIGURACIÓN FINAL CORREGIDA - Proyecto: registro-gastos-8a864
-var firebaseConfig = {
+const firebaseConfig = {
   apiKey: "AIzaSyDFCba95ny7I2HAA2KVm8IQgzgq-YkLJDo", 
   authDomain: "registro-gastos-8a864.firebaseapp.com",
-  databaseURL: "https://registro-gastos-8a864-default-rtdb.firebaseio.com",
+  databaseURL: "https://registro-gastos-8a864-default-rtdb.firebaseio.com/",
   projectId: "registro-gastos-8a864",
   storageBucket: "registro-gastos-8a864.firebasestorage.app",
   messagingSenderId: "893257009763",
@@ -10,13 +9,10 @@ var firebaseConfig = {
   measurementId: "G-P81R3MJQP7"
 };
 
-// Inicialización estilo Hunter (v8 Compat)
-if (!firebase.apps.length) {
+// Inicialización automática
+if (typeof firebase !== 'undefined' && !firebase.apps.length) {
     firebase.initializeApp(firebaseConfig);
 }
-
-// Exportar a la ventana global para que app.js no falle
-window.fbAuth = firebase.auth();
-window.fbDatabase = firebase.database();
-
-console.log("🚀 Firebase conectado con la clave:", firebaseConfig.apiKey.slice(-5));
+if (typeof firebase !== 'undefined' && firebase.auth) {
+    window.fbAuth = firebase.auth();
+}
