@@ -1,4 +1,5 @@
-const firebaseConfig = {
+// Configuración oficial de tu proyecto registro-gastos-8a864
+var firebaseConfig = {
   apiKey: "AIzaSyDFCba95ny7I2HAA2KVm8IQqzqg-YkLJDo",
   authDomain: "registro-gastos-8a864.firebaseapp.com",
   databaseURL: "https://registro-gastos-8a864-default-rtdb.firebaseio.com",
@@ -9,20 +10,13 @@ const firebaseConfig = {
   measurementId: "G-P81R3MJQP7"
 };
 
-const FB_COLLECTIONS = {
-  users: 'users',
-  profiles: 'profiles'
-};
-
-const FB_DOCS = {
-  userAuth: 'auth'
-};
-
-// --- INICIALIZADOR HUNTER ---
-if (typeof firebase !== 'undefined' && !firebase.apps.length) {
-  firebase.initializeApp(firebaseConfig);
+// INICIALIZACIÓN FORZADA (ESTILO COMPAT)
+if (!firebase.apps.length) {
+    firebase.initializeApp(firebaseConfig);
 }
 
-if (typeof firebase !== 'undefined' && firebase.auth) {
-  window.fbAuth = firebase.auth();
-}
+// Definir variables globales para que app.js las vea
+window.fbAuth = firebase.auth();
+window.fbDatabase = firebase.database();
+
+console.log("🔥 Firebase inicializado correctamente en el proyecto:", firebaseConfig.projectId);
