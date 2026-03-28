@@ -1,8 +1,8 @@
-// Configuración oficial de tu proyecto registro-gastos-8a864
+// Configuración OFICIAL corregida - Proyecto: registro-gastos-8a864
 var firebaseConfig = {
-  apiKey: "AIzaSyDFCba95ny7I2HAA2KVm8IQqzqg-YkLJDo",
+  apiKey: "AIzaSyDFCba95ny7I2HAA2KVm8IQgzgq-YkLJ0o",
   authDomain: "registro-gastos-8a864.firebaseapp.com",
-  databaseURL: "https://registro-gastos-8a864-default-rtdb.firebaseio.com",
+  databaseURL: "https://registro-gastos-8a864-default-rtdb.firebaseio.com/",
   projectId: "registro-gastos-8a864",
   storageBucket: "registro-gastos-8a864.firebasestorage.app",
   messagingSenderId: "893257009763",
@@ -10,13 +10,13 @@ var firebaseConfig = {
   measurementId: "G-P81R3MJQP7"
 };
 
-// INICIALIZACIÓN FORZADA (ESTILO COMPAT)
+// Inicialización del motor Firebase
 if (!firebase.apps.length) {
     firebase.initializeApp(firebaseConfig);
 }
 
-// Definir variables globales para que app.js las vea
+// Variables globales para que app.js funcione
 window.fbAuth = firebase.auth();
 window.fbDatabase = firebase.database();
 
-console.log("🔥 Firebase inicializado correctamente en el proyecto:", firebaseConfig.projectId);
+console.log("🚀 Sistema Firebase vinculado con éxito");
