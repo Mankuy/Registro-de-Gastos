@@ -1,6 +1,6 @@
 // CONFIGURACIÓN FINAL CORREGIDA - Proyecto: registro-gastos-8a864
 var firebaseConfig = {
-  apiKey: "AIzaSyDFCba95ny7I2HAA2KVm8IQgzgq-YkLJ0o", 
+  apiKey: "AIzaSyDFCba95ny7I2HAA2KVm8IQgzgq-YkLJDo", 
   authDomain: "registro-gastos-8a864.firebaseapp.com",
   databaseURL: "https://registro-gastos-8a864-default-rtdb.firebaseio.com",
   projectId: "registro-gastos-8a864",
