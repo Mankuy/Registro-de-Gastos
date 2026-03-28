@@ -158,37 +158,55 @@ function _fbError(code) {
 async function registerUser(username, displayName, password) {
   username    = (username || '').trim().toLowerCase();
   displayName = (displayName || '').trim() || username;
-  if (!username) return { ok: false, error: 'Ingresá un nombre de usuario' };
-  if (!/^[a-z0-9._-]+$/.test(username)) return { ok: false, error: 'El usuario solo puede tener letras, números, puntos, guiones o guión bajo' };
-  if (!password) return { ok: false, error: 'Ingresá una contraseña' };
-  if (password.length < 6) return { ok: false, error: 'La contraseña debe tener al menos 6 caracteres' };
-  try {
-    const email = username + FB_EMAIL_DOMAIN;
-    const cred = await fbAuth.createUserWithEmailAndPassword(email, password);
-    await cred.user.updateProfile({ displayName });
-    localStorage.setItem('hogar_last_username', username);
-    return { ok: true, userId: cred.user.uid, displayName };
-  } catch(e) { return { ok: false, error: _fbError(e.code) }; }
-}
+  password    = password || '';
 
+  if (!username)         return { ok: false, error: 'Ingresá un nombre de usuario' };
+  
+  // Validamos que el nombre de usuario sea simple (letras y números)
+  const validUserRegex = /^[a-zA-Z0-9._]+$/;
+  if (!validUserRegex.test(username)) {
+    return { ok: false, error: 'El usuario solo puede tener letras, números, puntos o guión bajo' };
+  }
+
+  if (!password)         return { ok: false, error: 'Ingresá una contraseña' };
+  if (password.length < 4) return { ok: false, error: 'Mínimo 4 caracteres' };
+
+  try {
+    // MAGIA: Le pegamos el dominio para que Firebase lo acepte como mail
+    const fakeEmail = username + "@gestor.hogar.app";
+    
+    // Creamos el usuario en Firebase Auth
+    const userCredential = await fbAuth.createUserWithEmailAndPassword(fakeEmail, password);
+    const userId = userCredential.user.uid;
+
+    // Guardamos su perfil en la base de datos (Realtime Database)
+    await dbRef(`users/${userId}/auth`).set({
+      username: username,
+      displayName: displayName
+    });
+
+    return { ok: true, userId: userId };
+  } catch (e) {
+    console.error("Error en registro:", e);
+    // Si el usuario ya existe en Firebase, damos un aviso claro
+    if (e.code === 'auth/email-already-in-use') return { ok: false, error: 'Ese usuario ya existe' };
+    return { ok: false, error: 'Error: ' + e.message };
+  }
+}
 async function loginUser(username, password) {
   username = (username || '').trim().toLowerCase();
-  if (!username) return { ok: false, error: 'Ingresá tu usuario' };
-  if (!password) return { ok: false, error: 'Ingresá tu contraseña' };
-  // Intentar con dominio nuevo y viejo (compatibilidad con cuentas existentes)
-  const domains = [FB_EMAIL_DOMAIN, '@gestor.hogar'];
-  for (const domain of domains) {
-    try {
-      const cred = await fbAuth.signInWithEmailAndPassword(username + domain, password);
-      localStorage.setItem('hogar_last_username', username);
-      return { ok: true, userId: cred.user.uid };
-    } catch(e) {
-      if (e.code !== 'auth/user-not-found' && e.code !== 'auth/invalid-credential') {
-        return { ok: false, error: _fbError(e.code) };
-      }
-    }
+  if (!username || !password) return { ok: false, error: 'Completá todos los campos' };
+
+  try {
+    // MAGIA: También le pegamos el dominio aquí para entrar
+    const fakeEmail = username + "@gestor.hogar.app";
+    
+    const userCredential = await fbAuth.signInWithEmailAndPassword(fakeEmail, password);
+    return { ok: true, userId: userCredential.user.uid };
+  } catch (e) {
+    console.error("Error en login:", e);
+    return { ok: false, error: 'Usuario o contraseña incorrectos' };
   }
-  return { ok: false, error: 'Usuario o contraseña incorrectos' };
 }
 
 function logoutUser() {
