@@ -9,9 +9,22 @@ const firebaseConfig = {
 };
 
 const FB_COLLECTIONS = {
-  users:    'users',
+  users: 'users',
   profiles: 'profiles'
 };
 const FB_DOCS = {
   userAuth: 'auth'
 };
+
+// --- EL PARCHE HUNTER PARA ARREGLAR EL ERROR fbAuth ---
+// 1. Inicializamos Firebase 
+if (typeof firebase !== 'undefined' && !firebase.apps.length) {
+  firebase.initializeApp(firebaseConfig);
+}
+
+// 2. Forzamos la creación de fbAuth para que app.js no de error
+if (typeof firebase !== 'undefined' && firebase.auth) {
+  window.fbAuth = firebase.auth();
+} else {
+  console.warn("Falta el script de Firebase Auth en el HTML.");
+}
