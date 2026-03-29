@@ -1,13 +1,13 @@
 /**
- * GESTOR DEL HOGAR - APP.JS (VERSIÓN DEFINITIVA - COMPLETA)
- * Firebase SDK v8 Compat | Login funcional | Sincronización con Bot Telegram
+ * GESTOR DEL HOGAR - APP.JS (VERSIÓN DEFINITIVA COMPLETA)
+ * Nueva API Key + Firebase SDK v8 Compat + Sincronización en tiempo real
  */
 
 console.log('%c🚀 Gestor del Hogar - app.js cargado (versión definitiva)', 'color:#7c3aed;font-weight:bold;font-size:14px');
 
-// ==================== 1. FIREBASE CONFIG ====================
+// ==================== 1. FIREBASE CONFIG (NUEVA API KEY) ====================
 const firebaseConfig = {
-    apiKey: "AIzaSyDFCba95ny7I2HAA2KVm8IQgzgq-YkLJDo",
+    apiKey: "AIzaSyBqunzevnZjdPEFVTgL6TupBiAQhS_h88g",   // ← Tu nueva clave
     authDomain: "registro-gastos-8a864.firebaseapp.com",
     databaseURL: "https://registro-gastos-8a864-default-rtdb.firebaseio.com",
     projectId: "registro-gastos-8a864",
@@ -22,6 +22,8 @@ if (!firebase.apps.length) {
 const auth = firebase.auth();
 const db = firebase.database();
 
+console.log('%c✅ Firebase inicializado correctamente con nueva API Key', 'color:#10b981');
+
 // ==================== 2. ESTADO GLOBAL ====================
 let currentUser = null;
 let currentMonth = new Date().toISOString().slice(0, 7);
@@ -32,8 +34,6 @@ const defaultExpenses = ["Alquiler", "UTE", "OSE", "Antel", "Patente", "Seguro",
 
 // ==================== 3. AUTENTICACIÓN ====================
 const handleAuth = async (isRegister) => {
-    console.log(`🔑 Intentando ${isRegister ? 'registro' : 'login'}`);
-
     const userInp = document.getElementById(isRegister ? 'reg-username' : 'login-username');
     const passInp = document.getElementById(isRegister ? 'reg-password' : 'login-password');
 
@@ -57,20 +57,19 @@ const handleAuth = async (isRegister) => {
                 displayName: displayName,
                 createdAt: Date.now()
             });
-            console.log('%c✅ Cuenta creada exitosamente', 'color:#10b981');
+            console.log('%c✅ Cuenta creada', 'color:#10b981');
         } else {
             await auth.signInWithEmailAndPassword(email, password);
             console.log('%c✅ Login exitoso', 'color:#10b981');
         }
     } catch (error) {
-        console.error("❌ Firebase Auth Error:", error);
+        console.error("❌ Auth Error:", error);
         alert(`Error: ${error.message}`);
     }
 };
 
-// Observador de estado de usuario
+// Observador de usuario
 auth.onAuthStateChanged(user => {
-    console.log('%c👤 onAuthStateChanged → ', user ? 'LOGUEADO' : 'NO logueado');
     const loginScreen = document.getElementById('login-screen');
     if (user) {
         currentUser = user;
@@ -83,12 +82,11 @@ auth.onAuthStateChanged(user => {
 
 // ==================== 4. INICIALIZACIÓN ====================
 function initApp() {
-    console.log('%c🏠 initApp() - Cargando dashboard', 'color:#7c3aed');
+    console.log('%c🏠 initApp() - App cargada', 'color:#7c3aed');
     setupAppListeners();
     renderMonthNav();
     syncRealtimeData();
 
-    // Cargar nombre de perfil
     db.ref(`users/${currentUser.uid}/profile/displayName`).once('value', s => {
         if (s.exists()) {
             document.getElementById('profile-display-name').innerText = s.val();
@@ -97,11 +95,10 @@ function initApp() {
     });
 }
 
-// ==================== 5. LISTENERS DEL LOGIN ====================
+// ==================== 5. LOGIN LISTENERS ====================
 function setupLoginListeners() {
-    console.log('%c🔑 setupLoginListeners() - Botones del login activos', 'color:#10b981');
+    console.log('%c🔑 Listeners del login configurados', 'color:#10b981');
 
-    // Tabs
     document.getElementById('tab-login-btn').addEventListener('click', () => {
         document.getElementById('login-form-wrap').hidden = false;
         document.getElementById('register-form-wrap').hidden = true;
@@ -116,11 +113,9 @@ function setupLoginListeners() {
         document.getElementById('tab-login-btn').classList.remove('active');
     });
 
-    // Botones
     document.getElementById('btn-login').addEventListener('click', () => handleAuth(false));
     document.getElementById('btn-register').addEventListener('click', () => handleAuth(true));
 
-    // Enter
     document.addEventListener('keypress', (e) => {
         if (e.key === 'Enter' && !document.getElementById('login-screen').classList.contains('hidden')) {
             handleAuth(false);
@@ -128,7 +123,7 @@ function setupLoginListeners() {
     });
 }
 
-// ==================== 6. LISTENERS DE LA APP ====================
+// ==================== 6. APP LISTENERS ====================
 function setupAppListeners() {
     // Dark Mode
     const darkBtn = document.getElementById('btn-dark-mode');
@@ -165,11 +160,7 @@ function setupAppListeners() {
     // Exportar Excel
     document.getElementById('btn-export').addEventListener('click', () => {
         db.ref(`users/${currentUser.uid}/data/${currentMonth}/expenses`).once('value', s => {
-            const data = Object.values(s.val() || {}).map(e => ({
-                Gasto: e.desc,
-                Monto: e.monto,
-                Pago: e.pago
-            }));
+            const data = Object.values(s.val() || {}).map(e => ({Gasto: e.desc, Monto: e.monto, Pago: e.pago}));
             const ws = XLSX.utils.json_to_sheet(data);
             const wb = XLSX.utils.book_new();
             XLSX.utils.book_append_sheet(wb, ws, "Gastos");
@@ -206,7 +197,7 @@ function setupAppListeners() {
             }
             document.getElementById('ocr-raw-text').value = text;
         } catch (err) {
-            alert("Error al procesar la imagen");
+            alert("Error al leer la imagen.");
         } finally {
             progressWrap.hidden = true;
         }
@@ -214,7 +205,7 @@ function setupAppListeners() {
 
     document.getElementById('btn-ocr-add-expense').addEventListener('click', () => {
         const monto = parseFloat(document.getElementById('ocr-amount-input').value);
-        const desc = document.getElementById('ocr-commerce').value || "Compra con ticket";
+        const desc = document.getElementById('ocr-commerce').value || "Compra Ticket";
         if (monto) {
             const id = db.ref().child('temp').push().key;
             db.ref(`users/${currentUser.uid}/data/${currentMonth}/expenses/${id}`).set({
@@ -351,7 +342,7 @@ window.removeMember = (i) => {
     }
 };
 
-// ==================== 9. INICIALIZACIÓN INMEDIATA ====================
+// ==================== 9. INICIALIZACIÓN ====================
 document.addEventListener('DOMContentLoaded', () => {
     setupLoginListeners();
 });
