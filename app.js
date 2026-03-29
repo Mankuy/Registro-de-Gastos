@@ -1,9 +1,9 @@
 /**
- * GESTOR DEL HOGAR - APP.JS (VERSIÓN FINAL)
- * Optimizado para Uruguay | Firebase SDK v8 Compat
+ * GESTOR DEL HOGAR - APP.JS (VERSIÓN FINAL PRODUCCIÓN)
+ * Optimizado para Uruguay | Firebase SDK v8 Compat | GitHub Pages
  */
 
-// 1. CONFIGURACIÓN FIREBASE
+ // 1. CONFIGURACIÓN FIREBASE (primero, siempre)
 const firebaseConfig = {
     apiKey: "AIzaSyDFCba95ny7I2HAA2KVm8IQgzgq-YkLJDo",
     authDomain: "registro-gastos-8a864.firebaseapp.com",
@@ -15,7 +15,7 @@ const firebaseConfig = {
     measurementId: "G-P81R3MJQP7"
 };
 
-// Inicialización
+// Inicialización blindada (nunca duplicar app)
 if (!firebase.apps.length) {
     firebase.initializeApp(firebaseConfig);
 }
@@ -24,7 +24,9 @@ const db = firebase.database();
 
 // 2. ESTADO GLOBAL
 let currentUser = null;
-let currentMonth = new Date().toISOString().slice(0, 7); // Formato YYYY-MM
+let currentMonth = new Date().toISOString().slice(0, 7); // YYYY-MM
+let currentExpensesRef = null; // ← Para detach de listeners (evita duplicados)
+
 let members = ["Facu", "Lu", "Fran"];
 const defaultExpenses = ["Alquiler", "UTE", "OSE", "Antel", "Patente", "Seguro", "Nafta", "Mutualista", "Supermercado", "Feria", "PedidosYa"];
 
@@ -32,10 +34,17 @@ const defaultExpenses = ["Alquiler", "UTE", "OSE", "Antel", "Patente", "Seguro",
 const handleAuth = async (isRegister) => {
     const userInp = document.getElementById(isRegister ? 'reg-username' : 'login-username');
     const passInp = document.getElementById(isRegister ? 'reg-password' : 'login-password');
-    const displayInp = document.getElementById('reg-displayname');
 
     if (!userInp || !passInp || !userInp.value || !passInp.value) {
         return alert("Por favor, completa los campos requeridos.");
+    }
+
+    // Validación de contraseñas en registro
+    if (isRegister) {
+        const pass2 = document.getElementById('reg-password2').value;
+        if (passInp.value !== pass2) {
+            return alert("Las contraseñas no coinciden.");
+        }
     }
 
     const email = `${userInp.value.trim().toLowerCase()}@gestor.hogar.app`;
@@ -44,8 +53,9 @@ const handleAuth = async (isRegister) => {
     try {
         if (isRegister) {
             const cred = await auth.createUserWithEmailAndPassword(email, password);
+            const displayName = document.getElementById('reg-displayname').value || userInp.value;
             await db.ref(`users/${cred.user.uid}/profile`).set({
-                displayName: displayInp.value || userInp.value,
+                displayName: displayName,
                 createdAt: Date.now()
             });
         } else {
@@ -58,7 +68,7 @@ const handleAuth = async (isRegister) => {
     }
 };
 
-// Observador de Estado de Usuario
+// Observador de estado de usuario
 auth.onAuthStateChanged(user => {
     const loginScreen = document.getElementById('login-screen');
     if (user) {
@@ -75,8 +85,8 @@ function initApp() {
     setupEventListeners();
     renderMonthNav();
     syncRealtimeData();
-    
-    // Cargar perfil
+
+    // Cargar nombre de perfil
     db.ref(`users/${currentUser.uid}/profile/displayName`).once('value', s => {
         if (s.exists()) {
             document.getElementById('profile-display-name').innerText = s.val();
@@ -85,12 +95,12 @@ function initApp() {
     });
 }
 
-// 5. NAVEGACIÓN Y SINCRONIZACIÓN (BOT DE TELEGRAM COMPATIBLE)
+// 5. NAVEGACIÓN POR MES
 function renderMonthNav() {
     const nav = document.getElementById('month-nav');
     const months = ["01","02","03","04","05","06","07","08","09","10","11","12"];
     const year = new Date().getFullYear();
-    
+
     nav.innerHTML = months.map(m => {
         const id = `${year}-${m}`;
         return `<button class="month-tab ${currentMonth === id ? 'active' : ''}" onclick="changeMonth('${id}')">${m}/${year.toString().slice(-2)}</button>`;
@@ -103,10 +113,18 @@ window.changeMonth = (id) => {
     syncRealtimeData();
 };
 
+// 6. SINCRONIZACIÓN EN TIEMPO REAL (compatible con Bot de Telegram)
 function syncRealtimeData() {
     const path = `users/${currentUser.uid}/data/${currentMonth}/expenses`;
-    // Escuchar en tiempo real cambios de la Web o del Bot de Telegram
-    db.ref(path).on('value', snapshot => {
+
+    // Detach listener anterior para evitar duplicados
+    if (currentExpensesRef) {
+        currentExpensesRef.off('value');
+    }
+
+    currentExpensesRef = db.ref(path);
+
+    currentExpensesRef.on('value', snapshot => {
         const data = snapshot.val();
         if (!data) {
             seedInitialMonth();
@@ -121,16 +139,21 @@ function seedInitialMonth() {
     const seeds = {};
     defaultExpenses.forEach(name => {
         const id = db.ref().child('temp').push().key;
-        seeds[id] = { desc: name, monto: 0, pago: members[0], fecha: new Date().toISOString().split('T')[0] };
+        seeds[id] = {
+            desc: name,
+            monto: 0,
+            pago: members[0],
+            fecha: new Date().toISOString().split('T')[0]
+        };
     });
     db.ref(path).set(seeds);
 }
 
-// 6. RENDERIZADO DEL DASHBOARD
+// 7. RENDERIZADO DEL DASHBOARD
 function renderDashboard(expenses) {
     const main = document.getElementById('main-content');
     document.getElementById('header-month').innerText = currentMonth;
-    
+
     let total = 0;
     const items = Object.keys(expenses).map(id => {
         const e = expenses[id];
@@ -170,14 +193,16 @@ function renderDashboard(expenses) {
     `;
 }
 
-// 7. ACCIONES CRUD
+// 8. ACCIONES CRUD
 window.updateRecord = (id, field, val) => {
     db.ref(`users/${currentUser.uid}/data/${currentMonth}/expenses/${id}`).update({ [field]: val });
 };
 
 window.editAmount = (id, current) => {
     const val = prompt("Editar monto ($):", current);
-    if (val !== null && !isNaN(val)) updateRecord(id, 'monto', parseFloat(val));
+    if (val !== null && !isNaN(val)) {
+        updateRecord(id, 'monto', parseFloat(val));
+    }
 };
 
 window.deleteRecord = (id) => {
@@ -191,13 +216,16 @@ window.addNewExpense = () => {
     if (!desc) return;
     const id = db.ref().child('temp').push().key;
     db.ref(`users/${currentUser.uid}/data/${currentMonth}/expenses/${id}`).set({
-        desc, monto: 0, pago: members[0], fecha: new Date().toISOString().split('T')[0]
+        desc,
+        monto: 0,
+        pago: members[0],
+        fecha: new Date().toISOString().split('T')[0]
     });
 };
 
-// 8. EVENT LISTENERS (SINCRONIZADOS CON TU HTML)
+// 9. EVENT LISTENERS
 function setupEventListeners() {
-    // Tabs Login/Registro
+    // Tabs Login / Registro
     document.getElementById('tab-login-btn').onclick = () => {
         document.getElementById('login-form-wrap').hidden = false;
         document.getElementById('register-form-wrap').hidden = true;
@@ -237,14 +265,14 @@ function setupEventListeners() {
     };
     document.getElementById('btn-add-member').onclick = () => {
         const inp = document.getElementById('new-member-input');
-        if (inp.value) {
-            members.push(inp.value);
+        if (inp.value.trim()) {
+            members.push(inp.value.trim());
             inp.value = '';
             renderMembersList();
         }
     };
 
-    // Exportar
+    // Exportar Excel
     document.getElementById('btn-export').onclick = () => {
         db.ref(`users/${currentUser.uid}/data/${currentMonth}/expenses`).once('value', s => {
             const data = Object.values(s.val() || {}).map(e => ({ Gasto: e.desc, Monto: e.monto, Pago: e.pago }));
@@ -255,7 +283,7 @@ function setupEventListeners() {
         });
     };
 
-    // OCR (Escáner)
+    // OCR
     const ocrOverlay = document.getElementById('ocr-overlay');
     document.getElementById('btn-ticket').onclick = () => ocrOverlay.classList.add('open');
     document.getElementById('btn-close-ocr').onclick = () => ocrOverlay.classList.remove('open');
@@ -271,9 +299,9 @@ function setupEventListeners() {
 
         try {
             const { data: { text } } = await Tesseract.recognize(file, 'spa', {
-                logger: m => { if(m.status === 'recognizing') progressBar.style.width = `${m.progress * 100}%` }
+                logger: m => { if (m.status === 'recognizing') progressBar.style.width = `${m.progress * 100}%`; }
             });
-            
+
             const prices = text.match(/\d+[\.,]\d{2}/g);
             if (prices) {
                 const maxVal = Math.max(...prices.map(p => parseFloat(p.replace(',', '.'))));
@@ -301,6 +329,13 @@ function setupEventListeners() {
             ocrOverlay.classList.remove('open');
         }
     };
+
+    // Soporte Enter en login
+    document.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter' && !document.getElementById('login-screen').classList.contains('hidden')) {
+            handleAuth(false);
+        }
+    });
 }
 
 function renderMembersList() {
@@ -318,12 +353,3 @@ window.removeMember = (i) => {
         renderMembersList();
     }
 };
-
-// Soporte teclado Enter
-document.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') {
-        if (!document.getElementById('login-screen').classList.contains('hidden')) {
-            handleAuth(false);
-        }
-    }
-});
