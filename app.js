@@ -1,12 +1,11 @@
 'use strict';
 
-// ════════════════════════════════════════════════════════════
-//  1. CONFIGURACIÓN FIREBASE (CORREGIDA Y BLINDADA)
-// ════════════════════════════════════════════════════════════
-const firebaseConfig = {
-  apiKey: "AIzaSyDFCba95ny7I2HAA2KVm8IQgzgq-YkLJDo", 
+
+// === CONFIGURACIÓN MAESTRA Y ÚNICA ===
+var firebaseConfig = {
+  apiKey: "AIzaSyDFCba95ny7I2HAA2KVm8IQgzgq-YkLJ0o", 
   authDomain: "registro-gastos-8a864.firebaseapp.com",
-  databaseURL: "https://registro-gastos-8a864-default-rtdb.firebaseio.com/",
+  databaseURL: "https://registro-gastos-8a864-default-rtdb.firebaseio.com",
   projectId: "registro-gastos-8a864",
   storageBucket: "registro-gastos-8a864.firebasestorage.app",
   messagingSenderId: "893257009763",
@@ -14,12 +13,18 @@ const firebaseConfig = {
   measurementId: "G-P81R3MJQP7"
 };
 
-// Inicialización de Firebase
-if (!firebase.apps.length) {
+// Inicialización forzada
+if (firebase.apps.length) {
+    firebase.app().delete().then(() => firebase.initializeApp(firebaseConfig));
+} else {
     firebase.initializeApp(firebaseConfig);
 }
-const fbAuth = firebase.auth();
-const fbDatabase = firebase.database();
+window.fbAuth = firebase.auth();
+window.fbDatabase = firebase.database();
+// =====================================
+
+'use strict';
+// ... el resto de tu código de app.js ...
 
 // ════════════════════════════════════════════════════════════
 //  2. CONSTANTES Y PLANTILLAS (URUGUAY)
