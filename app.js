@@ -1,9 +1,9 @@
 /**
- * GESTOR DEL HOGAR - APP.JS (VERSIÓN FINAL PRODUCCIÓN)
+ * GESTOR DEL HOGAR - APP.JS (VERSIÓN FINAL PRODUCCIÓN - FIX LOGIN)
  * Optimizado para Uruguay | Firebase SDK v8 Compat | GitHub Pages
  */
 
- // 1. CONFIGURACIÓN FIREBASE (primero, siempre)
+// 1. CONFIGURACIÓN FIREBASE
 const firebaseConfig = {
     apiKey: "AIzaSyDFCba95ny7I2HAA2KVm8IQgzgq-YkLJDo",
     authDomain: "registro-gastos-8a864.firebaseapp.com",
@@ -15,7 +15,6 @@ const firebaseConfig = {
     measurementId: "G-P81R3MJQP7"
 };
 
-// Inicialización blindada (nunca duplicar app)
 if (!firebase.apps.length) {
     firebase.initializeApp(firebaseConfig);
 }
@@ -24,8 +23,8 @@ const db = firebase.database();
 
 // 2. ESTADO GLOBAL
 let currentUser = null;
-let currentMonth = new Date().toISOString().slice(0, 7); // YYYY-MM
-let currentExpensesRef = null; // ← Para detach de listeners (evita duplicados)
+let currentMonth = new Date().toISOString().slice(0, 7);
+let currentExpensesRef = null;
 
 let members = ["Facu", "Lu", "Fran"];
 const defaultExpenses = ["Alquiler", "UTE", "OSE", "Antel", "Patente", "Seguro", "Nafta", "Mutualista", "Supermercado", "Feria", "PedidosYa"];
@@ -39,12 +38,9 @@ const handleAuth = async (isRegister) => {
         return alert("Por favor, completa los campos requeridos.");
     }
 
-    // Validación de contraseñas en registro
     if (isRegister) {
         const pass2 = document.getElementById('reg-password2').value;
-        if (passInp.value !== pass2) {
-            return alert("Las contraseñas no coinciden.");
-        }
+        if (passInp.value !== pass2) return alert("Las contraseñas no coinciden.");
     }
 
     const email = `${userInp.value.trim().toLowerCase()}@gestor.hogar.app`;
@@ -55,7 +51,7 @@ const handleAuth = async (isRegister) => {
             const cred = await auth.createUserWithEmailAndPassword(email, password);
             const displayName = document.getElementById('reg-displayname').value || userInp.value;
             await db.ref(`users/${cred.user.uid}/profile`).set({
-                displayName: displayName,
+                displayName,
                 createdAt: Date.now()
             });
         } else {
@@ -63,12 +59,11 @@ const handleAuth = async (isRegister) => {
         }
     } catch (error) {
         console.error("Firebase Auth Error:", error);
-        localStorage.clear();
         alert(`Error: ${error.message}`);
     }
 };
 
-// Observador de estado de usuario
+// Observador de usuario
 auth.onAuthStateChanged(user => {
     const loginScreen = document.getElementById('login-screen');
     if (user) {
@@ -80,13 +75,13 @@ auth.onAuthStateChanged(user => {
     }
 });
 
-// 4. INICIALIZACIÓN DE LA APP
+// 4. INICIALIZACIÓN DE LA APP (solo después de login)
 function initApp() {
-    setupEventListeners();
+    setupAppListeners();
     renderMonthNav();
     syncRealtimeData();
 
-    // Cargar nombre de perfil
+    // Cargar perfil
     db.ref(`users/${currentUser.uid}/profile/displayName`).once('value', s => {
         if (s.exists()) {
             document.getElementById('profile-display-name').innerText = s.val();
@@ -95,173 +90,63 @@ function initApp() {
     });
 }
 
-// 5. NAVEGACIÓN POR MES
-function renderMonthNav() {
-    const nav = document.getElementById('month-nav');
-    const months = ["01","02","03","04","05","06","07","08","09","10","11","12"];
-    const year = new Date().getFullYear();
+// 5. LISTENERS DEL LOGIN (se ejecutan apenas carga la página)
+function setupLoginListeners() {
+    // Tabs
+    const tabLogin = document.getElementById('tab-login-btn');
+    const tabRegister = document.getElementById('tab-register-btn');
+    const loginForm = document.getElementById('login-form-wrap');
+    const registerForm = document.getElementById('register-form-wrap');
 
-    nav.innerHTML = months.map(m => {
-        const id = `${year}-${m}`;
-        return `<button class="month-tab ${currentMonth === id ? 'active' : ''}" onclick="changeMonth('${id}')">${m}/${year.toString().slice(-2)}</button>`;
-    }).join('');
-}
+    if (tabLogin) tabLogin.onclick = () => {
+        loginForm.hidden = false;
+        registerForm.hidden = true;
+        tabLogin.classList.add('active');
+        tabRegister.classList.remove('active');
+    };
+    if (tabRegister) tabRegister.onclick = () => {
+        loginForm.hidden = true;
+        registerForm.hidden = false;
+        tabRegister.classList.add('active');
+        tabLogin.classList.remove('active');
+    };
 
-window.changeMonth = (id) => {
-    currentMonth = id;
-    renderMonthNav();
-    syncRealtimeData();
-};
+    // Botones
+    const btnLogin = document.getElementById('btn-login');
+    const btnRegister = document.getElementById('btn-register');
+    if (btnLogin) btnLogin.onclick = () => handleAuth(false);
+    if (btnRegister) btnRegister.onclick = () => handleAuth(true);
 
-// 6. SINCRONIZACIÓN EN TIEMPO REAL (compatible con Bot de Telegram)
-function syncRealtimeData() {
-    const path = `users/${currentUser.uid}/data/${currentMonth}/expenses`;
-
-    // Detach listener anterior para evitar duplicados
-    if (currentExpensesRef) {
-        currentExpensesRef.off('value');
-    }
-
-    currentExpensesRef = db.ref(path);
-
-    currentExpensesRef.on('value', snapshot => {
-        const data = snapshot.val();
-        if (!data) {
-            seedInitialMonth();
-        } else {
-            renderDashboard(data);
+    // Enter
+    document.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter' && !document.getElementById('login-screen').classList.contains('hidden')) {
+            handleAuth(false);
         }
     });
+
+    console.log("✅ Listeners del login cargados correctamente");
 }
 
-function seedInitialMonth() {
-    const path = `users/${currentUser.uid}/data/${currentMonth}/expenses`;
-    const seeds = {};
-    defaultExpenses.forEach(name => {
-        const id = db.ref().child('temp').push().key;
-        seeds[id] = {
-            desc: name,
-            monto: 0,
-            pago: members[0],
-            fecha: new Date().toISOString().split('T')[0]
-        };
-    });
-    db.ref(path).set(seeds);
-}
-
-// 7. RENDERIZADO DEL DASHBOARD
-function renderDashboard(expenses) {
-    const main = document.getElementById('main-content');
-    document.getElementById('header-month').innerText = currentMonth;
-
-    let total = 0;
-    const items = Object.keys(expenses).map(id => {
-        const e = expenses[id];
-        total += parseFloat(e.monto || 0);
-        return `
-            <tr>
-                <td>${e.desc}</td>
-                <td>
-                    <select class="table-select" onchange="updateRecord('${id}', 'pago', this.value)">
-                        ${members.map(m => `<option value="${m}" ${e.pago === m ? 'selected' : ''}>${m}</option>`).join('')}
-                    </select>
-                </td>
-                <td class="amount-cell" onclick="editAmount('${id}', ${e.monto})">$ ${parseFloat(e.monto).toLocaleString('es-UY')}</td>
-                <td><button class="btn-del" onclick="deleteRecord('${id}')">✕</button></td>
-            </tr>`;
-    }).join('');
-
-    main.innerHTML = `
-        <div class="summary">
-            <div class="summary-card expense">
-                <span class="label">Total del Mes</span>
-                <span class="amount">$ ${total.toLocaleString('es-UY')}</span>
-            </div>
-        </div>
-        <div class="section-card">
-            <div class="section-header">
-                <h3>Gastos</h3>
-                <button class="btn-confirm-sm" onclick="addNewExpense()">+ Nuevo</button>
-            </div>
-            <div class="table-wrap">
-                <table>
-                    <thead><tr><th>Gasto</th><th>Responsable</th><th>Monto</th><th></th></tr></thead>
-                    <tbody>${items}</tbody>
-                </table>
-            </div>
-        </div>
-    `;
-}
-
-// 8. ACCIONES CRUD
-window.updateRecord = (id, field, val) => {
-    db.ref(`users/${currentUser.uid}/data/${currentMonth}/expenses/${id}`).update({ [field]: val });
-};
-
-window.editAmount = (id, current) => {
-    const val = prompt("Editar monto ($):", current);
-    if (val !== null && !isNaN(val)) {
-        updateRecord(id, 'monto', parseFloat(val));
-    }
-};
-
-window.deleteRecord = (id) => {
-    if (confirm("¿Eliminar este gasto?")) {
-        db.ref(`users/${currentUser.uid}/data/${currentMonth}/expenses/${id}`).remove();
-    }
-};
-
-window.addNewExpense = () => {
-    const desc = prompt("Descripción del gasto:");
-    if (!desc) return;
-    const id = db.ref().child('temp').push().key;
-    db.ref(`users/${currentUser.uid}/data/${currentMonth}/expenses/${id}`).set({
-        desc,
-        monto: 0,
-        pago: members[0],
-        fecha: new Date().toISOString().split('T')[0]
-    });
-};
-
-// 9. EVENT LISTENERS
-function setupEventListeners() {
-    // Tabs Login / Registro
-    document.getElementById('tab-login-btn').onclick = () => {
-        document.getElementById('login-form-wrap').hidden = false;
-        document.getElementById('register-form-wrap').hidden = true;
-        document.getElementById('tab-login-btn').classList.add('active');
-        document.getElementById('tab-register-btn').classList.remove('active');
-    };
-    document.getElementById('tab-register-btn').onclick = () => {
-        document.getElementById('login-form-wrap').hidden = true;
-        document.getElementById('register-form-wrap').hidden = false;
-        document.getElementById('tab-register-btn').classList.add('active');
-        document.getElementById('tab-login-btn').classList.remove('active');
-    };
-
-    // Botones Auth
-    document.getElementById('btn-login').onclick = () => handleAuth(false);
-    document.getElementById('btn-register').onclick = () => handleAuth(true);
-
+// 6. LISTENERS DE LA APP (después de login)
+function setupAppListeners() {
     // Dark Mode
-    document.getElementById('btn-dark-mode').onclick = () => {
-        const currentTheme = document.documentElement.getAttribute('data-theme');
-        const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
-        document.documentElement.setAttribute('data-theme', newTheme);
-        document.getElementById('btn-dark-mode').innerText = newTheme === 'dark' ? '☀️' : '🌙';
+    const darkBtn = document.getElementById('btn-dark-mode');
+    if (darkBtn) darkBtn.onclick = () => {
+        const current = document.documentElement.getAttribute('data-theme');
+        const next = current === 'dark' ? 'light' : 'dark';
+        document.documentElement.setAttribute('data-theme', next);
+        darkBtn.innerText = next === 'dark' ? '☀️' : '🌙';
     };
 
     // Miembros
-    const memOverlay = document.getElementById('members-overlay');
-    const memDrawer = document.getElementById('members-drawer');
     document.getElementById('btn-members').onclick = () => {
-        memOverlay.classList.add('open');
-        memDrawer.classList.add('open');
+        document.getElementById('members-overlay').classList.add('open');
+        document.getElementById('members-drawer').classList.add('open');
         renderMembersList();
     };
     document.getElementById('btn-close-members').onclick = () => {
-        memOverlay.classList.remove('open');
-        memDrawer.classList.remove('open');
+        document.getElementById('members-overlay').classList.remove('open');
+        document.getElementById('members-drawer').classList.remove('open');
     };
     document.getElementById('btn-add-member').onclick = () => {
         const inp = document.getElementById('new-member-input');
@@ -272,10 +157,10 @@ function setupEventListeners() {
         }
     };
 
-    // Exportar Excel
+    // Exportar
     document.getElementById('btn-export').onclick = () => {
         db.ref(`users/${currentUser.uid}/data/${currentMonth}/expenses`).once('value', s => {
-            const data = Object.values(s.val() || {}).map(e => ({ Gasto: e.desc, Monto: e.monto, Pago: e.pago }));
+            const data = Object.values(s.val() || {}).map(e => ({Gasto: e.desc, Monto: e.monto, Pago: e.pago}));
             const ws = XLSX.utils.json_to_sheet(data);
             const wb = XLSX.utils.book_new();
             XLSX.utils.book_append_sheet(wb, ws, "Gastos");
@@ -329,14 +214,117 @@ function setupEventListeners() {
             ocrOverlay.classList.remove('open');
         }
     };
+}
 
-    // Soporte Enter en login
-    document.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter' && !document.getElementById('login-screen').classList.contains('hidden')) {
-            handleAuth(false);
+// 7. MES Y SINCRONIZACIÓN
+function renderMonthNav() {
+    const nav = document.getElementById('month-nav');
+    const months = ["01","02","03","04","05","06","07","08","09","10","11","12"];
+    const year = new Date().getFullYear();
+
+    nav.innerHTML = months.map(m => {
+        const id = `${year}-${m}`;
+        return `<button class="month-tab ${currentMonth === id ? 'active' : ''}" onclick="changeMonth('${id}')">${m}/${year.toString().slice(-2)}</button>`;
+    }).join('');
+}
+
+window.changeMonth = (id) => {
+    currentMonth = id;
+    renderMonthNav();
+    syncRealtimeData();
+};
+
+function syncRealtimeData() {
+    const path = `users/${currentUser.uid}/data/${currentMonth}/expenses`;
+    if (currentExpensesRef) currentExpensesRef.off('value');
+    currentExpensesRef = db.ref(path);
+    currentExpensesRef.on('value', snapshot => {
+        const data = snapshot.val();
+        if (!data) {
+            seedInitialMonth();
+        } else {
+            renderDashboard(data);
         }
     });
 }
+
+function seedInitialMonth() {
+    const path = `users/${currentUser.uid}/data/${currentMonth}/expenses`;
+    const seeds = {};
+    defaultExpenses.forEach(name => {
+        const id = db.ref().child('temp').push().key;
+        seeds[id] = { desc: name, monto: 0, pago: members[0], fecha: new Date().toISOString().split('T')[0] };
+    });
+    db.ref(path).set(seeds);
+}
+
+// 8. DASHBOARD Y CRUD
+function renderDashboard(expenses) {
+    const main = document.getElementById('main-content');
+    document.getElementById('header-month').innerText = currentMonth;
+
+    let total = 0;
+    const items = Object.keys(expenses).map(id => {
+        const e = expenses[id];
+        total += parseFloat(e.monto || 0);
+        return `
+            <tr>
+                <td>${e.desc}</td>
+                <td>
+                    <select class="table-select" onchange="updateRecord('${id}', 'pago', this.value)">
+                        ${members.map(m => `<option value="${m}" ${e.pago === m ? 'selected' : ''}>${m}</option>`).join('')}
+                    </select>
+                </td>
+                <td class="amount-cell" onclick="editAmount('${id}', ${e.monto})">$ ${parseFloat(e.monto).toLocaleString('es-UY')}</td>
+                <td><button class="btn-del" onclick="deleteRecord('${id}')">✕</button></td>
+            </tr>`;
+    }).join('');
+
+    main.innerHTML = `
+        <div class="summary">
+            <div class="summary-card expense">
+                <span class="label">Total del Mes</span>
+                <span class="amount">$ ${total.toLocaleString('es-UY')}</span>
+            </div>
+        </div>
+        <div class="section-card">
+            <div class="section-header">
+                <h3>Gastos</h3>
+                <button class="btn-confirm-sm" onclick="addNewExpense()">+ Nuevo</button>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead><tr><th>Gasto</th><th>Responsable</th><th>Monto</th><th></th></tr></thead>
+                    <tbody>${items}</tbody>
+                </table>
+            </div>
+        </div>
+    `;
+}
+
+window.updateRecord = (id, field, val) => {
+    db.ref(`users/${currentUser.uid}/data/${currentMonth}/expenses/${id}`).update({ [field]: val });
+};
+
+window.editAmount = (id, current) => {
+    const val = prompt("Editar monto ($):", current);
+    if (val !== null && !isNaN(val)) updateRecord(id, 'monto', parseFloat(val));
+};
+
+window.deleteRecord = (id) => {
+    if (confirm("¿Eliminar este gasto?")) {
+        db.ref(`users/${currentUser.uid}/data/${currentMonth}/expenses/${id}`).remove();
+    }
+};
+
+window.addNewExpense = () => {
+    const desc = prompt("Descripción del gasto:");
+    if (!desc) return;
+    const id = db.ref().child('temp').push().key;
+    db.ref(`users/${currentUser.uid}/data/${currentMonth}/expenses/${id}`).set({
+        desc, monto: 0, pago: members[0], fecha: new Date().toISOString().split('T')[0]
+    });
+};
 
 function renderMembersList() {
     const list = document.getElementById('members-list');
@@ -353,3 +341,8 @@ window.removeMember = (i) => {
         renderMembersList();
     }
 };
+
+// 9. INICIALIZACIÓN INMEDIATA
+document.addEventListener('DOMContentLoaded', () => {
+    setupLoginListeners();
+});
