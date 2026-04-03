@@ -2337,13 +2337,30 @@ async function pollTelegramUpdates(token) {
 
       const text = msg.text.trim();
 
-      // Formato esperado: /gasto <monto> <descripcion> [quien]
-      // o simplemente: <monto> <descripcion>
-      const gastoMatch = text.match(/^(?:\/gasto\s+)?(\d+(?:[.,]\d{1,2})?)\s+(.+?)(?:\s+@(\w+))?$/i);
+      // Formato: /gasto <monto> <descripcion> [@]quien
+      // o simplemente: <monto> <descripcion> [quien]
+      const gastoMatch = text.match(/^(?:\/gasto\s+)?(\d+(?:[.,]\d{1,2})?)\s+(.+)$/i);
       if (gastoMatch) {
         const monto = parseFloat(gastoMatch[1].replace(',', '.'));
-        const desc  = gastoMatch[2].trim();
-        const who   = gastoMatch[3] || (state.members && state.members[0]) || '';
+        let rawDesc = gastoMatch[2].trim();
+        let who = '';
+
+        // Detectar miembro al final: @nombre o nombre suelto si coincide con un miembro
+        const atMatch = rawDesc.match(/\s+@(\w+)$/i);
+        if (atMatch) {
+          who = atMatch[1];
+          rawDesc = rawDesc.slice(0, atMatch.index).trim();
+        } else if (state.members && state.members.length) {
+          const words = rawDesc.split(/\s+/);
+          const lastWord = words[words.length - 1].toLowerCase();
+          const memberMatch = state.members.find(m => m.toLowerCase() === lastWord);
+          if (memberMatch && words.length > 1) {
+            who = memberMatch;
+            rawDesc = words.slice(0, -1).join(' ');
+          }
+        }
+        if (!who) who = (state.members && state.members[0]) || '';
+        const desc = rawDesc;
 
         if (!state.months[currentMonth]) continue;
 
@@ -2365,7 +2382,7 @@ async function pollTelegramUpdates(token) {
           await fetch('https://api.telegram.org/bot' + token + '/sendMessage', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ chat_id: chatId, text: '✅ Gasto registrado: $' + monto + ' — ' + desc + (who ? ' (' + who + ')' : '') })
+            body: JSON.stringify({ chat_id: chatId, text: '✅ ¡Gasto anotado en ' + currentMonth + '!\n💰 $' + monto.toLocaleString('es-UY') + ' en "' + desc + '"' + (who ? ' por ' + who + '.' : '') })
           });
         } catch(e) {}
 
