@@ -16,6 +16,8 @@
   --income-light:   #d1fae5;
   --expense:        #dc2626;
   --expense-light:  #fee2e2;
+  --savings:        #2563eb;
+  --savings-light:  #dbeafe;
   --border:         #ddd6fe;
   --text:           #1e293b;
   --text-soft:      #64748b;
@@ -41,6 +43,8 @@
   --income-light:   #064e3b;
   --expense:        #f87171;
   --expense-light:  #450a0a;
+  --savings:        #60a5fa;
+  --savings-light:  #1e3a5f;
   --border:         #334155;
   --text:           #e2e8f0;
   --text-soft:      #94a3b8;
@@ -339,7 +343,7 @@ body {
 ════════════════════════════════════════════════════════════ */
 .summary {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 1rem;
 }
 
@@ -357,6 +361,7 @@ body {
 .summary-card.income  { border-left-color: var(--income); }
 .summary-card.expense { border-left-color: var(--expense); }
 .summary-card.balance { border-left-color: var(--primary); }
+.summary-card.savings { border-left-color: var(--savings); }
 
 .summary-card .label {
   font-size: 0.72rem;
@@ -377,6 +382,7 @@ body {
 .summary-card.income .amount  { color: var(--income); }
 .summary-card.expense .amount { color: var(--expense); }
 .summary-card.balance .amount { color: var(--primary); }
+.summary-card.savings .amount { color: var(--savings); }
 
 /* ════════════════════════════════════════════════════════════
    SECTION CARDS
@@ -415,6 +421,7 @@ body {
 }
 .badge-income  { background: var(--income-light);  color: var(--income); }
 .badge-expense { background: var(--expense-light); color: var(--expense); }
+.badge-savings { background: var(--savings-light); color: var(--savings); }
 
 .btn-add-row {
   border: 1px dashed var(--border);
@@ -1086,9 +1093,33 @@ tr:hover .btn-del { opacity: 1; }
 [data-theme="dark"] .toast { background: #4c1d95; }
 .toast.show { opacity: 1; transform: translateY(0); }
 
+/* ── Savings section ──────────────────────────────────────── */
+.savings-total-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0.75rem 1.25rem; background: var(--savings-light);
+  border-radius: var(--radius-sm); margin-bottom: 0.75rem;
+}
+.savings-total-bar .savings-total-label { font-weight: 600; color: var(--savings); }
+.savings-total-bar .savings-total-amount { font-size: 1.25rem; font-weight: 700; color: var(--savings); }
+.savings-entry-row { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+.savings-entry-row input, .savings-entry-row select {
+  padding: 0.4rem 0.6rem; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--bg-input); color: var(--text); font-size: 0.85rem;
+}
+.savings-entry-row input[type="number"] { width: 100px; }
+.savings-entry-row input[type="text"] { flex: 1; min-width: 100px; }
+.btn-delete-saving {
+  background: none; border: none; cursor: pointer; font-size: 1rem; opacity: 0.5;
+  transition: opacity 0.15s;
+}
+.btn-delete-saving:hover { opacity: 1; }
+
 /* ════════════════════════════════════════════════════════════
    RESPONSIVE
 ════════════════════════════════════════════════════════════ */
+@media (max-width: 900px) {
+  .summary { grid-template-columns: repeat(2, 1fr); }
+}
 @media (max-width: 640px) {
   .summary { grid-template-columns: 1fr; }
   .charts-grid { grid-template-columns: 1fr; }

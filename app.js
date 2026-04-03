@@ -430,6 +430,7 @@ function activateProfile(id, doSave = true) {
   if (!state.apiKey)    state.apiKey    = '';
   if (!state.months)    state.months    = {};
   if (!state.collapsed) state.collapsed = { income: false, expense: false, insights: false };
+  if (!state.savings)   state.savings   = [];
 
   // Restaurar mes activo
   if (state.currentMonth && state.months[state.currentMonth]) {
@@ -801,6 +802,120 @@ function getGroupBadgeHTML(group, type, index) {
 }
 
 // ════════════════════════════════════════════════════════════
+//  SAVINGS (AHORRO) MANAGEMENT
+// ════════════════════════════════════════════════════════════
+
+function addSaving(amount, description, who) {
+  if (!amount || isNaN(parseFloat(amount))) return;
+  if (!state.savings) state.savings = [];
+  state.savings.push({
+    date: new Date().toISOString().slice(0, 10),
+    amount: String(parseFloat(amount)),
+    description: (description || '').trim() || 'Ahorro',
+    who: (who || '').trim(),
+    month: currentMonth || ''
+  });
+  saveState();
+  renderMain();
+  showToast('Ahorro registrado: $' + parseFloat(amount).toLocaleString('es-UY'));
+}
+
+function deleteSaving(index) {
+  if (!state.savings || !state.savings[index]) return;
+  if (!confirm('¿Eliminar este ahorro de $' + parseFloat(state.savings[index].amount).toLocaleString('es-UY') + '?')) return;
+  state.savings.splice(index, 1);
+  saveState();
+  renderMain();
+  showToast('Ahorro eliminado');
+}
+
+function totalSavings() {
+  if (!state.savings) return 0;
+  return state.savings.reduce((acc, s) => acc + (parseFloat(s.amount) || 0), 0);
+}
+
+function openAddSavingModal() {
+  const membersOpts = (state.members || []).map(m =>
+    `<option value="${esc(m)}">${esc(m)}</option>`
+  ).join('');
+
+  openModal('💰 Registrar Ahorro', `
+    <div style="display:flex;flex-direction:column;gap:0.75rem;">
+      <div>
+        <label class="field-label">Monto ($)</label>
+        <input type="number" id="saving-amount" min="0" step="0.01" placeholder="0.00" style="width:100%;padding:0.5rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-input);color:var(--text);" />
+      </div>
+      <div>
+        <label class="field-label">Descripción</label>
+        <input type="text" id="saving-desc" placeholder="Ej: Ahorro mensual" style="width:100%;padding:0.5rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-input);color:var(--text);" />
+      </div>
+      <div>
+        <label class="field-label">Quién</label>
+        <select id="saving-who" style="width:100%;padding:0.5rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-input);color:var(--text);">
+          <option value="">Sin asignar</option>
+          ${membersOpts}
+        </select>
+      </div>
+    </div>
+  `, 'Guardar', function() {
+    const amount = document.getElementById('saving-amount').value;
+    const desc   = document.getElementById('saving-desc').value;
+    const who    = document.getElementById('saving-who').value;
+    addSaving(amount, desc, who);
+    closeModal();
+  });
+}
+
+function renderSavingsSection() {
+  const collapsed = state.collapsed || {};
+  const savings   = state.savings || [];
+  const total     = totalSavings();
+
+  const rows = savings.map((s, i) => `
+    <tr>
+      <td style="font-size:0.8rem;color:var(--text-soft)">${esc(s.date)}</td>
+      <td style="font-weight:500">${esc(s.description)}</td>
+      <td>${esc(s.who) || '<span style="color:var(--text-soft)">—</span>'}</td>
+      <td style="font-size:0.8rem;color:var(--text-soft)">${esc(s.month) || '—'}</td>
+      <td style="font-weight:700;color:var(--savings)">${fmt(parseFloat(s.amount))}</td>
+      <td><button class="btn-delete-saving" onclick="deleteSaving(${i})" title="Eliminar">🗑️</button></td>
+    </tr>
+  `).join('');
+
+  return `
+    <div class="section-card${collapsed.savings ? ' collapsed' : ''}" id="section-savings">
+      <div class="section-header">
+        <div class="section-title">
+          <span>💰</span> Ahorro
+          <span class="badge badge-savings">${savings.length} movimientos</span>
+        </div>
+        <div style="display:flex;gap:0.5rem;align-items:center;">
+          <button class="btn-add-row" onclick="openAddSavingModal()">+ Agregar</button>
+          <button class="btn-collapse" id="btn-collapse-savings" onclick="toggleSection('savings')" title="Colapsar/expandir">
+            ${collapsed.savings ? '▸' : '▾'}
+          </button>
+        </div>
+      </div>
+      <div class="section-body" id="section-body-savings">
+        <div class="savings-total-bar">
+          <span class="savings-total-label">Total ahorrado</span>
+          <span class="savings-total-amount">${fmt(total)}</span>
+        </div>
+        ${savings.length > 0 ? `
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Fecha</th><th>Descripción</th><th>Quién</th><th>Mes origen</th><th>Monto</th><th></th></tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>` : '<p style="text-align:center;color:var(--text-soft);padding:1rem;">No hay ahorros registrados aún</p>'}
+      </div>
+    </div>
+  `;
+}
+
+// ════════════════════════════════════════════════════════════
 //  COLLAPSIBLE SECTION CARDS
 // ════════════════════════════════════════════════════════════
 
@@ -1070,6 +1185,8 @@ function renderMain() {
   main.innerHTML = `
     ${renderSummaryHTML(totalIncome, totalExpense, balance)}
 
+    ${renderSavingsSection()}
+
     <div class="section-card${collapsed.insights ? ' collapsed' : ''}" id="section-insights">
       <div class="section-header">
         <div class="section-title">📊 Análisis del mes</div>
@@ -1160,6 +1277,7 @@ function renderMain() {
 }
 
 function renderSummaryHTML(totalIncome, totalExpense, balance) {
+  const savTotal = totalSavings();
   return `
     <div class="summary">
       <div class="summary-card income">
@@ -1176,6 +1294,11 @@ function renderSummaryHTML(totalIncome, totalExpense, balance) {
         <span class="label">Balance</span>
         <span class="amount" id="sum-balance" style="color:${balance < 0 ? 'var(--expense)' : 'var(--primary-dark)'}">${fmt(balance)}</span>
         <span class="sublabel">${balance >= 0 ? 'Superávit' : 'Déficit'}</span>
+      </div>
+      <div class="summary-card savings">
+        <span class="label">Ahorro</span>
+        <span class="amount" id="sum-savings">${fmt(savTotal)}</span>
+        <span class="sublabel">Total acumulado</span>
       </div>
     </div>
   `;
@@ -2129,6 +2252,16 @@ function exportCSV() {
     rows.push(row.join(','));
   });
 
+  // Savings rows
+  if (state.savings && state.savings.length > 0) {
+    rows.push(['', '', '', '', ''].concat(monthKeys.map(() => '')).join(','));
+    rows.push(['Ahorro', 'Fecha', 'Descripción', 'Quién', 'Monto'].join(','));
+    state.savings.forEach(s => {
+      rows.push(['', csvCell(s.date), csvCell(s.description), csvCell(s.who), parseFloat(s.amount) || 0].join(','));
+    });
+    rows.push(['', '', 'Total Ahorro', '', totalSavings()].join(','));
+  }
+
   const csvContent = '\uFEFF' + rows.join('\n');
   const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
   const url  = URL.createObjectURL(blob);
@@ -2228,6 +2361,31 @@ function exportPDF() {
     }
   });
 
+  // Savings section
+  if (state.savings && state.savings.length > 0) {
+    if (y > 250) { doc.addPage(); y = 15; }
+    doc.setFontSize(13);
+    doc.setTextColor(40, 40, 40);
+    doc.text('💰 Ahorro Acumulado', 14, y);
+    y += 6;
+    const savRows = state.savings.map(s => [
+      s.date, s.description, s.who || '—', s.month || '—',
+      '$' + (parseFloat(s.amount) || 0).toLocaleString('es-UY')
+    ]);
+    savRows.push(['', '', '', 'TOTAL', '$' + totalSavings().toLocaleString('es-UY')]);
+    doc.autoTable({
+      startY: y,
+      head: [['Fecha', 'Descripción', 'Quién', 'Mes origen', 'Monto']],
+      body: savRows,
+      theme: 'striped',
+      headStyles: { fillColor: [37, 99, 235], fontSize: 8 },
+      bodyStyles: { fontSize: 8 },
+      columnStyles: { 4: { halign: 'right' } },
+      margin: { left: 14, right: 14 },
+    });
+    y = doc.lastAutoTable.finalY + 10;
+  }
+
   doc.save('gestor_hogar_' + profileName + '_' + new Date().toISOString().slice(0, 10) + '.pdf');
   showToast('PDF exportado');
 }
@@ -2295,6 +2453,9 @@ window.logoutUser            = logoutUser;
 window.switchLoginTab        = switchLoginTab;
 window.exportPDF             = exportPDF;
 window.openGroupsModal       = openGroupsModal;
+window.addSaving             = addSaving;
+window.deleteSaving          = deleteSaving;
+window.openAddSavingModal    = openAddSavingModal;
 
 // ════════════════════════════════════════════════════════════
 //  TELEGRAM BOT INTEGRATION
@@ -2336,6 +2497,90 @@ async function pollTelegramUpdates(token) {
       if (String(msg.chat.id) !== String(chatId)) continue;
 
       const text = msg.text.trim();
+
+      // Formato: /ingreso <monto> <descripcion> [@]quien
+      const ingresoMatch = text.match(/^\/ingreso\s+(\d+(?:[.,]\d{1,2})?)\s+(.+)$/i);
+      if (ingresoMatch) {
+        const monto = parseFloat(ingresoMatch[1].replace(',', '.'));
+        let rawDesc = ingresoMatch[2].trim();
+        let who = '';
+
+        const atMatch = rawDesc.match(/\s+@(\w+)$/i);
+        if (atMatch) {
+          who = atMatch[1];
+          rawDesc = rawDesc.slice(0, atMatch.index).trim();
+        } else if (state.members && state.members.length) {
+          const words = rawDesc.split(/\s+/);
+          const lastWord = words[words.length - 1].toLowerCase();
+          const memberMatch = state.members.find(m => m.toLowerCase() === lastWord);
+          if (memberMatch && words.length > 1) {
+            who = memberMatch;
+            rawDesc = words.slice(0, -1).join(' ');
+          }
+        }
+        if (!who) who = (state.members && state.members[0]) || '';
+        const desc = rawDesc;
+
+        if (!state.months[currentMonth]) continue;
+
+        const existing = state.months[currentMonth].income.find(r => r.name.toLowerCase() === desc.toLowerCase());
+        if (existing) {
+          existing.value = String((parseFloat(existing.value) || 0) + monto);
+          if (who) existing.who = who;
+        } else {
+          state.months[currentMonth].income.push({ name: desc, value: String(monto), who: who });
+        }
+        saveState();
+        renderMain();
+
+        try {
+          await fetch('https://api.telegram.org/bot' + token + '/sendMessage', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chat_id: chatId, text: '✅ ¡Ingreso anotado en ' + currentMonth + '!\n💚 $' + monto.toLocaleString('es-UY') + ' en "' + desc + '"' + (who ? ' por ' + who + '.' : '') })
+          });
+        } catch(e) {}
+
+        showToast('Ingreso desde Telegram: $' + monto + ' — ' + desc);
+        continue;
+      }
+
+      // Formato: /ahorro <monto> <descripcion> [@]quien
+      const ahorroMatch = text.match(/^\/ahorro\s+(\d+(?:[.,]\d{1,2})?)\s*(.*)$/i);
+      if (ahorroMatch) {
+        const monto = parseFloat(ahorroMatch[1].replace(',', '.'));
+        let rawDesc = (ahorroMatch[2] || '').trim() || 'Ahorro';
+        let who = '';
+
+        const atMatch = rawDesc.match(/\s+@(\w+)$/i);
+        if (atMatch) {
+          who = atMatch[1];
+          rawDesc = rawDesc.slice(0, atMatch.index).trim() || 'Ahorro';
+        }
+        if (!who) who = (state.members && state.members[0]) || '';
+
+        if (!state.savings) state.savings = [];
+        state.savings.push({
+          date: new Date().toISOString().slice(0, 10),
+          amount: String(monto),
+          description: rawDesc,
+          who: who,
+          month: currentMonth || ''
+        });
+        saveState();
+        renderMain();
+
+        try {
+          await fetch('https://api.telegram.org/bot' + token + '/sendMessage', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chat_id: chatId, text: '✅ ¡Ahorro registrado!\n💰 $' + monto.toLocaleString('es-UY') + ' — "' + rawDesc + '"' + (who ? ' por ' + who : '') })
+          });
+        } catch(e) {}
+
+        showToast('Ahorro desde Telegram: $' + monto);
+        continue;
+      }
 
       // Formato: /gasto <monto> <descripcion> [@]quien
       // o simplemente: <monto> <descripcion> [quien]
@@ -2404,7 +2649,8 @@ async function pollTelegramUpdates(token) {
                 chat_id: chatId,
                 text: '📊 ' + currentMonth + '\nIngresos: $' + totalIncome.toLocaleString('es-UY') +
                       '\nEgresos: $' + totalExpense.toLocaleString('es-UY') +
-                      '\nBalance: $' + balance.toLocaleString('es-UY')
+                      '\nBalance: $' + balance.toLocaleString('es-UY') +
+                      '\n💰 Ahorro acumulado: $' + totalSavings().toLocaleString('es-UY')
               })
             });
           } catch(e) {}
@@ -2425,6 +2671,10 @@ async function pollTelegramUpdates(token) {
                     '/gasto <monto> <descripcion> [@quien]\n' +
                     '  Ej: /gasto 350 Supermercado @Facu\n' +
                     '  Ej: 150 PedidosYa\n\n' +
+                    '/ingreso <monto> <descripcion> [@quien]\n' +
+                    '  Ej: /ingreso 50000 Sueldo @Facu\n\n' +
+                    '/ahorro <monto> [descripcion] [@quien]\n' +
+                    '  Ej: /ahorro 5000 Ahorro mensual\n\n' +
                     '/saldo — Ver balance del mes actual\n' +
                     '/ayuda — Ver este mensaje'
             })
