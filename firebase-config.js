@@ -1,18 +1,15 @@
 const firebaseConfig = {
-  apiKey: "AIzaSyDFCba95ny7I2HAA2KVm8IQgzgq-YkLJDo", 
+  apiKey: "AIzaSyBqunzevnZjdPEFVTgL6TupBiAQhS_h88g",
   authDomain: "registro-gastos-8a864.firebaseapp.com",
-  databaseURL: "https://registro-gastos-8a864-default-rtdb.firebaseio.com/",
   projectId: "registro-gastos-8a864",
   storageBucket: "registro-gastos-8a864.firebasestorage.app",
   messagingSenderId: "893257009763",
-  appId: "1:893257009763:web:56d9c9dbdb682a3417f576",
-  measurementId: "G-P81R3MJQP7"
+  appId: "1:893257009763:web:56d9c9dbdb682a3417f576"
 };
 
-// Inicialización automática
-if (typeof firebase !== 'undefined' && !firebase.apps.length) {
-    firebase.initializeApp(firebaseConfig);
-}
-if (typeof firebase !== 'undefined' && firebase.auth) {
-    window.fbAuth = firebase.auth();
-}
+firebase.initializeApp(firebaseConfig);
+const db     = firebase.firestore();
+const fbAuth = firebase.auth();
+
+// Forzar persistencia local para que funcione en todos los navegadores
+fbAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);

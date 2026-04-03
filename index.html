@@ -44,7 +44,7 @@
         <label for="reg-username">Usuario</label>
         <input type="text" id="reg-username" autocomplete="username" placeholder="Ej: familia" />
         <label for="reg-password">Contraseña</label>
-        <input type="password" id="reg-password" autocomplete="new-password" placeholder="mínimo 4 caracteres" />
+        <input type="password" id="reg-password" autocomplete="new-password" placeholder="mínimo 6 caracteres" />
         <label for="reg-password2">Confirmar contraseña</label>
         <input type="password" id="reg-password2" autocomplete="new-password" placeholder="repetí la contraseña" />
         <button class="btn-login-submit" id="btn-register">Crear cuenta</button>
@@ -218,10 +218,22 @@
         <input type="password" id="settings-api-key" placeholder="sk-ant-api03-…" autocomplete="off" />
         <p class="settings-warning">⚠️ No compartas tu clave. Se guarda localmente sin cifrar. Solo usá en dispositivo personal.</p>
         <div id="settings-api-status" class="settings-status none">Sin configurar — se usará Tesseract.js (OCR local)</div>
+
+        <hr class="divider" style="margin:1.5rem 0;" />
+        <p class="settings-section-title">🤖 Bot de Telegram</p>
+        <p class="settings-section-desc">
+          Configurá tu bot de Telegram para enviar gastos desde el celular.
+          El token se guarda solo en este navegador.
+        </p>
+        <label class="field-label" for="settings-telegram-token">Token del Bot</label>
+        <input type="password" id="settings-telegram-token" placeholder="123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11" autocomplete="off" />
+        <label class="field-label" for="settings-telegram-chat-id">Chat ID</label>
+        <input type="text" id="settings-telegram-chat-id" placeholder="Tu chat ID de Telegram" autocomplete="off" />
+        <div id="settings-telegram-status" class="settings-status none">Sin configurar</div>
       </div>
       <div class="modal-foot">
         <button class="btn-cancel" id="btn-settings-cancel">Cancelar</button>
-        <button class="btn-danger" id="btn-settings-clear" style="margin-right:auto;">Limpiar clave</button>
+        <button class="btn-danger" id="btn-settings-clear" style="margin-right:auto;">Limpiar claves</button>
         <button class="btn-confirm" id="btn-settings-save">Guardar</button>
       </div>
     </div>
@@ -255,17 +267,20 @@
     <option value="QR / Digital"></option>
   </datalist>
 
-<!-- SCRIPTS -->
-  <!-- Firebase SDK v8 (Compat) -->
-<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
-<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
-<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+  <!-- SCRIPTS -->
+  <!-- Firebase SDK v10 Compat -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+  <!-- Firebase Config -->
+  <script src="firebase-config.js"></script>
+  <!-- Librerías de Terceros -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.0.5/dist/tesseract.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js"></script>
+  <!-- App -->
+  <script src="app.js?v=10"></script>
 
-<!-- Librerías de Terceros -->
-<script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-
-<!-- Tu Script Principal -->
-<script src="app.js"></script>
 </body>
 </html>
