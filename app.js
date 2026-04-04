@@ -1183,7 +1183,7 @@ function renderPorPersona() {
 
   // Tab buttons
   const tabs = allMembers.map(m =>
-    `<button class="month-tab${m === porPersonaSelected ? ' active' : ''}" onclick="selectPersona(${JSON.stringify(m)})">${esc(m)}</button>`
+    `<button class="month-tab${m === porPersonaSelected ? ' active' : ''}" onclick="selectPersona('${esc(m)}')">${esc(m)}</button>`
   ).join('');
 
   // Collect data across ALL months for this persona
