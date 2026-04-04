@@ -1194,15 +1194,17 @@ function renderPorPersona() {
   monthKeys.forEach(mk => {
     const monthData = state.months[mk];
 
-    // Filter by belongsTo OR who (fallback)
-    const incRows = monthData.income.filter(r => {
-      const bt = r.belongsTo || r.who || '';
-      return bt === porPersonaSelected || (!bt && porPersonaSelected === 'Hogar');
-    });
-    const expRows = monthData.expense.filter(r => {
-      const bt = r.belongsTo || r.who || '';
-      return bt === porPersonaSelected || (!bt && porPersonaSelected === 'Hogar');
-    });
+    // Filter: use belongsTo if set, otherwise fall back to who
+    const matchesPersona = (r) => {
+      const bt = (r.belongsTo || '').trim();
+      const who = (r.who || '').trim();
+      if (porPersonaSelected === 'Hogar') {
+        return bt === 'Hogar' || (bt === '' && who === '');
+      }
+      return bt === porPersonaSelected || (bt === '' && who === porPersonaSelected);
+    };
+    const incRows = monthData.income.filter(matchesPersona);
+    const expRows = monthData.expense.filter(matchesPersona);
 
     const totalInc = incRows.reduce((s, r) => s + (parseFloat(r.value) || 0), 0);
     const totalExp = expRows.reduce((s, r) => s + (parseFloat(r.value) || 0), 0);

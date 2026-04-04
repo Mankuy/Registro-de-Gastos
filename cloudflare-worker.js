@@ -222,11 +222,12 @@ async function downloadTelegramPhoto(botToken, fileId) {
   const imgResp = await fetch(`https://api.telegram.org/file/bot${botToken}/${filePath}`);
   const buffer = await imgResp.arrayBuffer();
   const bytes = new Uint8Array(buffer);
-  let binary = '';
-  for (let i = 0; i < bytes.length; i++) {
-    binary += String.fromCharCode(bytes[i]);
+  const CHUNK = 8192;
+  const parts = [];
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    parts.push(String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK)));
   }
-  const base64 = btoa(binary);
+  const base64 = btoa(parts.join(''));
 
   return { base64, mediaType };
 }
