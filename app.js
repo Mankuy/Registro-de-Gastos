@@ -1183,7 +1183,7 @@ function renderPorPersona() {
 
   // Tab buttons
   const tabs = allMembers.map(m =>
-    `<button class="month-tab${m === porPersonaSelected ? ' active' : ''}" onclick="selectPersona('${esc(m)}')">${esc(m)}</button>`
+    `<button class="month-tab persona-tab${m === porPersonaSelected ? ' active' : ''}" data-persona="${esc(m)}">${esc(m)}</button>`
   ).join('');
 
   // Collect data across ALL months for this persona
@@ -1272,6 +1272,14 @@ function renderPorPersona() {
     </div>
     ${monthCards || '<div class="section-card"><div class="section-body"><p style="text-align:center;color:var(--text-soft);padding:2rem;">No hay movimientos para ' + esc(porPersonaSelected) + '</p></div></div>'}
   `;
+
+  // Bind persona tab clicks via event delegation
+  main.querySelectorAll('.persona-tab').forEach(btn => {
+    btn.addEventListener('click', function() {
+      porPersonaSelected = this.getAttribute('data-persona');
+      renderPorPersona();
+    });
+  });
 }
 
 // ════════════════════════════════════════════════════════════
