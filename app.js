@@ -686,6 +686,7 @@ function addMonth(name) {
 function switchMonth(name) {
   currentMonth  = name;
   historialOpen = false;
+  porPersonaOpen = false;
   saveState();
   renderAll();
 }
@@ -709,8 +710,8 @@ function addRow(type, name) {
   if (!currentMonth || !name || !name.trim()) return;
   name = name.trim();
   const row = type === 'expense'
-    ? { name, value: '', who: '', commerce: '', paymentMethod: '', group: '' }
-    : { name, value: '', who: '' };
+    ? { name, value: '', who: '', belongsTo: '', commerce: '', paymentMethod: '', group: '' }
+    : { name, value: '', who: '', belongsTo: '' };
   state.months[currentMonth][type].push(row);
   saveState();
   renderMain();
@@ -738,6 +739,13 @@ function updateValue(type, index, val) {
 function updateWho(type, index, val) {
   if (!currentMonth) return;
   state.months[currentMonth][type][index].who = val;
+  saveState();
+  debouncedLiveUpdate();
+}
+
+function updateBelongsTo(type, index, val) {
+  if (!currentMonth) return;
+  state.months[currentMonth][type][index].belongsTo = val;
   saveState();
   debouncedLiveUpdate();
 }
@@ -1044,6 +1052,7 @@ function updateCommercesDatalist() {
 let historialOpen = false;
 
 function toggleHistorial() {
+  porPersonaOpen = false;
   historialOpen = !historialOpen;
   if (historialOpen) renderHistorial();
   else renderMain();
@@ -1135,12 +1144,142 @@ function renderHistorial() {
 }
 
 // ════════════════════════════════════════════════════════════
+//  VISTA POR PERSONA
+// ════════════════════════════════════════════════════════════
+
+let porPersonaOpen = false;
+let porPersonaSelected = '';
+
+function togglePorPersona() {
+  porPersonaOpen = !porPersonaOpen;
+  historialOpen = false;
+  if (porPersonaOpen) renderPorPersona();
+  else renderMain();
+}
+
+function selectPersona(name) {
+  porPersonaSelected = name;
+  renderPorPersona();
+}
+
+function renderPorPersona() {
+  if (!currentMonth || !state.months[currentMonth]) {
+    showToast('Seleccioná un mes primero');
+    porPersonaOpen = false;
+    return;
+  }
+
+  const main = document.getElementById('main-content');
+  if (!main) return;
+  destroyCharts();
+
+  const headerMonth = document.getElementById('header-month');
+  if (headerMonth) headerMonth.textContent = currentMonth + ' — Por persona';
+
+  const allMembers = ['Hogar'].concat(state.members || []);
+  if (!porPersonaSelected || !allMembers.includes(porPersonaSelected)) {
+    porPersonaSelected = allMembers[0] || '';
+  }
+
+  // Tab buttons
+  const tabs = allMembers.map(m =>
+    `<button class="month-tab${m === porPersonaSelected ? ' active' : ''}" onclick="selectPersona(${JSON.stringify(m)})">${esc(m)}</button>`
+  ).join('');
+
+  // Collect data across ALL months for this persona
+  const monthKeys = Object.keys(state.months);
+  let monthCards = '';
+  let grandIncome = 0, grandExpense = 0;
+
+  monthKeys.forEach(mk => {
+    const monthData = state.months[mk];
+
+    // Filter by belongsTo OR who (fallback)
+    const incRows = monthData.income.filter(r => {
+      const bt = r.belongsTo || r.who || '';
+      return bt === porPersonaSelected || (!bt && porPersonaSelected === 'Hogar');
+    });
+    const expRows = monthData.expense.filter(r => {
+      const bt = r.belongsTo || r.who || '';
+      return bt === porPersonaSelected || (!bt && porPersonaSelected === 'Hogar');
+    });
+
+    const totalInc = incRows.reduce((s, r) => s + (parseFloat(r.value) || 0), 0);
+    const totalExp = expRows.reduce((s, r) => s + (parseFloat(r.value) || 0), 0);
+    const balance = totalInc - totalExp;
+
+    if (totalInc === 0 && totalExp === 0) return; // skip empty months
+
+    grandIncome += totalInc;
+    grandExpense += totalExp;
+
+    const incHTML = incRows.filter(r => parseFloat(r.value) > 0).map(r =>
+      `<tr><td>💚</td><td>${esc(r.name)}</td><td style="color:var(--income);font-weight:700;text-align:right">${fmt(parseFloat(r.value))}</td></tr>`
+    ).join('');
+    const expHTML = expRows.filter(r => parseFloat(r.value) > 0).map(r =>
+      `<tr><td>🔴</td><td>${esc(r.name)}</td><td style="color:var(--expense);font-weight:700;text-align:right">${fmt(parseFloat(r.value))}</td></tr>`
+    ).join('');
+
+    monthCards += `
+      <div class="section-card" style="margin-bottom:1rem;">
+        <div class="section-header">
+          <div class="section-title">${esc(mk)}</div>
+          <div style="display:flex;gap:1rem;font-size:0.85rem;">
+            <span style="color:var(--income)">Ing: ${fmt(totalInc)}</span>
+            <span style="color:var(--expense)">Egr: ${fmt(totalExp)}</span>
+            <span style="color:${balance >= 0 ? 'var(--primary-dark)' : 'var(--expense)'};font-weight:700">Bal: ${fmt(balance)}</span>
+          </div>
+        </div>
+        <div class="section-body">
+          ${(incHTML || expHTML) ? `<div class="table-wrap"><table>${incHTML}${expHTML}</table></div>` : '<p style="text-align:center;color:var(--text-soft);padding:0.5rem;">Sin movimientos</p>'}
+        </div>
+      </div>
+    `;
+  });
+
+  const grandBalance = grandIncome - grandExpense;
+
+  main.innerHTML = `
+    <div class="section-card" style="margin-bottom:1rem;">
+      <div class="section-header">
+        <div class="section-title">👤 Vista por persona</div>
+        <button class="btn-add-row" onclick="togglePorPersona()">← Volver al mes</button>
+      </div>
+      <div class="section-body" style="padding:0.75rem 1.25rem;">
+        <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:1rem;">
+          ${tabs}
+        </div>
+        <div class="summary" style="margin-bottom:1rem;">
+          <div class="summary-card income">
+            <span class="label">Ingresos totales</span>
+            <span class="amount" style="color:var(--income)">${fmt(grandIncome)}</span>
+            <span class="sublabel">Todos los meses</span>
+          </div>
+          <div class="summary-card expense">
+            <span class="label">Egresos totales</span>
+            <span class="amount" style="color:var(--expense)">${fmt(grandExpense)}</span>
+            <span class="sublabel">Todos los meses</span>
+          </div>
+          <div class="summary-card balance">
+            <span class="label">Balance total</span>
+            <span class="amount" style="color:${grandBalance >= 0 ? 'var(--primary-dark)' : 'var(--expense)'}">${fmt(grandBalance)}</span>
+            <span class="sublabel">${grandBalance >= 0 ? 'Superávit' : 'Déficit'}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    ${monthCards || '<div class="section-card"><div class="section-body"><p style="text-align:center;color:var(--text-soft);padding:2rem;">No hay movimientos para ' + esc(porPersonaSelected) + '</p></div></div>'}
+  `;
+}
+
+// ════════════════════════════════════════════════════════════
 //  MAIN RENDER PIPELINE
 // ════════════════════════════════════════════════════════════
 
 function renderAll() {
   renderNav();
-  if (historialOpen) renderHistorial();
+  if (porPersonaOpen) renderPorPersona();
+  else if (historialOpen) renderHistorial();
   else renderMain();
 }
 
@@ -1322,13 +1461,20 @@ function renderMembersOptions(selectedWho) {
   return `<option value=""${!selectedWho ? ' selected' : ''}>Sin asignar</option>${opts}`;
 }
 
+function renderBelongsToOptions(selected) {
+  const opts = ['Hogar'].concat(state.members || []).map(m =>
+    `<option value="${esc(m)}"${m === selected ? ' selected' : ''}>${esc(m)}</option>`
+  ).join('');
+  return `<option value=""${!selected ? ' selected' : ''}>Sin asignar</option>${opts}`;
+}
+
 function renderTable(type, rows) {
   const isExpense  = type === 'expense';
   const tableClass = isExpense ? 'expense-table' : '';
 
   const thead = isExpense
-    ? `<tr><th>Categoría</th><th>Quién</th><th>Comercio</th><th>Medio de pago</th><th>Monto ($)</th><th></th></tr>`
-    : `<tr><th>Categoría</th><th>Quién</th><th>Monto ($)</th><th></th></tr>`;
+    ? `<tr><th>Categoría</th><th>Quién</th><th>Corresponde a</th><th>Comercio</th><th>Medio de pago</th><th>Monto ($)</th><th></th></tr>`
+    : `<tr><th>Categoría</th><th>Quién</th><th>Corresponde a</th><th>Monto ($)</th><th></th></tr>`;
 
   const tbodyRows = rows.map((row, i) => {
     const groupBadge = isExpense ? getGroupBadgeHTML(row.group || '', type, i) : '';
@@ -1346,6 +1492,13 @@ function renderTable(type, rows) {
       <td>
         <select class="table-select" onchange="updateWho('${type}',${i},this.value)">
           ${renderMembersOptions(row.who)}
+        </select>
+      </td>`;
+
+    const belongsToCell = `
+      <td>
+        <select class="table-select" onchange="updateBelongsTo('${type}',${i},this.value)">
+          ${renderBelongsToOptions(row.belongsTo)}
         </select>
       </td>`;
 
@@ -1378,14 +1531,14 @@ function renderTable(type, rows) {
         <button class="btn-del" onclick="deleteRow('${type}',${i})" title="Eliminar">✕</button>
       </td>`;
 
-    return `<tr>${categoryCell}${whoCell}${commerceCell}${paymentCell}${amountCell}${deleteCell}</tr>`;
+    return `<tr>${categoryCell}${whoCell}${belongsToCell}${commerceCell}${paymentCell}${amountCell}${deleteCell}</tr>`;
   }).join('');
 
   const total = rows.reduce((acc, r) => acc + (parseFloat(r.value) || 0), 0);
 
   const totalRow = isExpense
-    ? `<tr class="total-row"><td>Total</td><td></td><td></td><td></td><td class="total-expense">${fmt(total)}</td><td></td></tr>`
-    : `<tr class="total-row"><td>Total</td><td></td><td class="total-income">${fmt(total)}</td><td></td></tr>`;
+    ? `<tr class="total-row"><td>Total</td><td></td><td></td><td></td><td></td><td class="total-expense">${fmt(total)}</td><td></td></tr>`
+    : `<tr class="total-row"><td>Total</td><td></td><td></td><td class="total-income">${fmt(total)}</td><td></td></tr>`;
 
   return `<table class="${tableClass}"><thead>${thead}</thead><tbody>${tbodyRows}${totalRow}</tbody></table>`;
 }
@@ -2434,6 +2587,7 @@ window.openAddRowModal       = openAddRowModal;
 window.deleteRow             = deleteRow;
 window.updateValue           = updateValue;
 window.updateWho             = updateWho;
+window.updateBelongsTo       = updateBelongsTo;
 window.updateCommerce        = updateCommerce;
 window.updatePaymentMethod   = updatePaymentMethod;
 window.startInlineEdit       = startInlineEdit;
@@ -2456,6 +2610,8 @@ window.openGroupsModal       = openGroupsModal;
 window.addSaving             = addSaving;
 window.deleteSaving          = deleteSaving;
 window.openAddSavingModal    = openAddSavingModal;
+window.togglePorPersona      = togglePorPersona;
+window.selectPersona         = selectPersona;
 
 // ════════════════════════════════════════════════════════════
 //  TELEGRAM BOT INTEGRATION
@@ -2746,6 +2902,7 @@ document.addEventListener('DOMContentLoaded', function () {
   document.getElementById('btn-export-pdf')?.addEventListener('click', exportPDF);
   document.getElementById('btn-ticket')?.addEventListener('click', openOCRModal);
   document.getElementById('btn-historial')?.addEventListener('click', toggleHistorial);
+  document.getElementById('btn-por-persona')?.addEventListener('click', togglePorPersona);
   document.getElementById('btn-settings')?.addEventListener('click', openSettings);
 
   // ── Members drawer ───────────────────────────────────────

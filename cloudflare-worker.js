@@ -427,7 +427,7 @@ export default {
           name: desc,
           value: monto,
           who: who,
-          commerce: 'Telegram',
+          commerce: '',
           paymentMethod: '',
           group: ''
         };
