@@ -4,7 +4,7 @@
 //  CONSTANTS & DEFAULTS
 // ════════════════════════════════════════════════════════════
 
-const DEFAULT_MEMBERS   = ['Facu', 'Lu', 'Fran'];
+const DEFAULT_MEMBERS   = ['Facu', 'Lu', 'Fran', 'Francesca'];
 const DEFAULT_COMMERCES = ['Supermercado', 'Almacén', 'Feria', 'Farmacia', 'Otros'];
 
 // Categorías del perfil "Familia" original (para migración)
@@ -426,6 +426,8 @@ function activateProfile(id, doSave = true) {
 
   // Garantías de estructura
   if (!state.members)   state.members   = DEFAULT_MEMBERS.slice();
+  // Migrar: agregar miembros por defecto que falten
+  DEFAULT_MEMBERS.forEach(m => { if (!state.members.includes(m)) state.members.push(m); });
   if (!state.commerces) state.commerces = DEFAULT_COMMERCES.slice();
   if (!state.apiKey)    state.apiKey    = '';
   if (!state.months)    state.months    = {};
@@ -1203,7 +1205,10 @@ function renderPorPersona() {
       }
       return bt === porPersonaSelected || (bt === '' && who === porPersonaSelected);
     };
-    const incRows = monthData.income.filter(matchesPersona);
+    // Hogar income = ALL income (sum of all family members), expenses = only Hogar-assigned
+    const incRows = porPersonaSelected === 'Hogar'
+      ? monthData.income.filter(r => parseFloat(r.value) > 0)
+      : monthData.income.filter(matchesPersona);
     const expRows = monthData.expense.filter(matchesPersona);
 
     const totalInc = incRows.reduce((s, r) => s + (parseFloat(r.value) || 0), 0);
@@ -1507,9 +1512,12 @@ function renderTable(type, rows) {
 
     const belongsToCell = `
       <td>
-        <select class="table-select" onchange="updateBelongsTo('${type}',${i},this.value)">
-          ${renderBelongsToOptions(row.belongsTo)}
-        </select>
+        <div style="display:flex;align-items:center;gap:2px;">
+          <select class="table-select" style="flex:1" onchange="updateBelongsTo('${type}',${i},this.value)">
+            ${renderBelongsToOptions(row.belongsTo)}
+          </select>
+          <button class="btn-edit-inline" onclick="openMembersDrawer()" title="Gestionar miembros" style="font-size:0.7rem;padding:2px 4px;">⚙️</button>
+        </div>
       </td>`;
 
     const commerceCell = isExpense
