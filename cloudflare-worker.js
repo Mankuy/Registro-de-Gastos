@@ -147,6 +147,50 @@ function groupsListText(profile) {
   return builtin.concat(custom).join(', ');
 }
 
+function parseBelongsMembers(text, members) {
+  if (!text) return { single: '', multi: [] };
+  const parts = text.split(/\s*(?:,|\+|&|\/|\sy\s)\s*/i).map(p => p.trim()).filter(Boolean);
+  if (parts.length >= 2) {
+    const matched = parts.map(p => {
+      const m = (members || []).find(mm => mm.toLowerCase() === p.toLowerCase());
+      return m || null;
+    }).filter(Boolean);
+    if (matched.length >= 2) return { single: '', multi: matched };
+  }
+  return { single: '', multi: [] };
+}
+
+function finalizeExpense(profiles, activeId, month, expense) {
+  const split = expense._splitMembers;
+  delete expense._splitMembers;
+  if (split && split.length >= 2) {
+    const profile = profiles[activeId];
+    if (!profile) throw new Error('Perfil no encontrado: ' + activeId);
+    if (!profile.months) profile.months = {};
+    if (!profile.months[month]) {
+      profile.months[month] = {
+        income: profile._incomeDefaults ? JSON.parse(JSON.stringify(profile._incomeDefaults)) : [],
+        expense: profile._expenseDefaults ? JSON.parse(JSON.stringify(profile._expenseDefaults)) : []
+      };
+    }
+    const total = parseFloat(expense.value) || 0;
+    const share = Math.round((total / split.length) * 100) / 100;
+    split.forEach(m => {
+      profile.months[month].expense.push({
+        name: expense.name,
+        value: String(share),
+        who: m,
+        belongsTo: expense.belongsTo || '',
+        commerce: expense.commerce || '',
+        paymentMethod: expense.paymentMethod || '',
+        group: expense.group || ''
+      });
+    });
+  } else {
+    addExpense(profiles, activeId, month, expense);
+  }
+}
+
 function resolveBelongsTo(text, members) {
   if (!text) return '';
   const t = text.trim().toLowerCase();
@@ -156,12 +200,19 @@ function resolveBelongsTo(text, members) {
 }
 
 function finalizeMsg(expense, month) {
+  const split = expense._splitMembers;
+  const total = Number(expense.value) || 0;
   const parts = [
     `💖 ¡Listo! Te lo anoté en ${month}`,
-    `💰 $${Number(expense.value).toLocaleString('es-UY')} en "${expense.name}"`
+    `💰 $${total.toLocaleString('es-UY')} en "${expense.name}"`
   ];
-  if (expense.who) parts.push(`👤 ${expense.who}`);
-  if (expense.belongsTo) parts.push(`👥 Corresponde a: ${expense.belongsTo}`);
+  if (split && split.length >= 2) {
+    const share = Math.round((total / split.length) * 100) / 100;
+    parts.push(`🧮 Compartido entre ${split.join(', ')} ($${share.toLocaleString('es-UY')} c/u)`);
+  } else {
+    if (expense.who) parts.push(`👤 ${expense.who}`);
+    if (expense.belongsTo) parts.push(`👥 Corresponde a: ${expense.belongsTo}`);
+  }
   if (expense.group && BOT_EXPENSE_GROUPS[expense.group]) parts.push(`🏷️ ${BOT_EXPENSE_GROUPS[expense.group].label}`);
   if (expense.commerce) parts.push(`🏪 ${expense.commerce}`);
   if (expense.paymentMethod) parts.push(`💳 ${expense.paymentMethod}`);
@@ -630,10 +681,11 @@ export default {
           }
 
           if (lower === '/listo' || lower === '/guardar') {
-            addExpense(profiles, activeId, session.month || month, session.expense);
+            const msgText = finalizeMsg(session.expense, session.month || month);
+            finalizeExpense(profiles, activeId, session.month || month, session.expense);
             delete profiles._sessions[sessionKey];
             await writeProfiles(env.FIREBASE_PROJECT, env.FIREBASE_USER_ID, token, profiles, activeId);
-            await sendMessage(env.BOT_TOKEN, chatId, finalizeMsg(session.expense, session.month || month));
+            await sendMessage(env.BOT_TOKEN, chatId, msgText);
             return new Response('OK');
           }
 
@@ -650,11 +702,21 @@ export default {
             profiles._sessions[sessionKey] = session;
             await writeProfiles(env.FIREBASE_PROJECT, env.FIREBASE_USER_ID, token, profiles, activeId);
             const belongsOpts = ['Hogar'].concat(members).join(', ');
-            await sendMessage(env.BOT_TOKEN, chatId, `✅ Monto: $${Number(session.expense.value).toLocaleString('es-UY')}\n\n👥 ¿Corresponde a? (${belongsOpts})\n<i>/skip · /listo · /cancelar</i>`);
+            await sendMessage(env.BOT_TOKEN, chatId, `✅ Monto: $${Number(session.expense.value).toLocaleString('es-UY')}\n\n👥 ¿Corresponde a? (${belongsOpts})\n<i>Para dividir el gasto: varios separados por coma (ej: Facu, Lu)</i>\n<i>/skip · /listo · /cancelar</i>`);
             return new Response('OK');
           }
           if (session.step === 'belongs') {
-            if (!skip) session.expense.belongsTo = resolveBelongsTo(text, members);
+            if (!skip) {
+              const multi = parseBelongsMembers(text, members);
+              if (multi.multi.length >= 2) {
+                session.expense._splitMembers = multi.multi;
+                session.expense.belongsTo = multi.multi.join(', ');
+                const shareNow = Math.round(((parseFloat(session.expense.value) || 0) / multi.multi.length) * 100) / 100;
+                await sendMessage(env.BOT_TOKEN, chatId, `🧮 Compartido entre ${multi.multi.join(', ')} — $${shareNow.toLocaleString('es-UY')} c/u`);
+              } else {
+                session.expense.belongsTo = resolveBelongsTo(text, members);
+              }
+            }
             session.step = 'group';
             profiles._sessions[sessionKey] = session;
             await writeProfiles(env.FIREBASE_PROJECT, env.FIREBASE_USER_ID, token, profiles, activeId);
@@ -679,10 +741,11 @@ export default {
           }
           if (session.step === 'payment') {
             if (!skip) session.expense.paymentMethod = text;
-            addExpense(profiles, activeId, session.month || month, session.expense);
+            const msgText = finalizeMsg(session.expense, session.month || month);
+            finalizeExpense(profiles, activeId, session.month || month, session.expense);
             delete profiles._sessions[sessionKey];
             await writeProfiles(env.FIREBASE_PROJECT, env.FIREBASE_USER_ID, token, profiles, activeId);
-            await sendMessage(env.BOT_TOKEN, chatId, finalizeMsg(session.expense, session.month || month));
+            await sendMessage(env.BOT_TOKEN, chatId, msgText);
             return new Response('OK');
           }
         }
@@ -718,7 +781,7 @@ export default {
         const belongsOpts = ['Hogar'].concat(members).join(', ');
         await sendMessage(env.BOT_TOKEN, chatId,
           `📝 Gasto pendiente en ${month}\n💰 $${monto.toLocaleString('es-UY')} en "${desc}"${who ? ' · ' + who : ''}\n\n` +
-          `👥 ¿Corresponde a? (${belongsOpts})\n` +
+          `👥 ¿Corresponde a? (${belongsOpts})\n<i>Para dividir el gasto: varios separados por coma (ej: Facu, Lu)</i>\n` +
           `<i>/skip para omitir · /listo para guardar ya · /cancelar</i>`
         );
       }

@@ -2430,7 +2430,7 @@ function openAddRowModal(type, editIndex) {
     .concat(members.map(m => `<option value="${esc(m)}">${esc(m)}</option>`)).join('');
 
   let splitField = '';
-  if (type === 'expense' && !isEdit && members.length >= 2) {
+  if (type === 'expense' && members.length >= 2) {
     const checks = members.map(m =>
       `<label style="display:inline-flex;align-items:center;gap:0.3rem;padding:0.3rem 0.55rem;border:1px solid var(--border);border-radius:999px;font-size:0.82rem;cursor:pointer;">
         <input type="checkbox" class="modal-split-chk" value="${esc(m)}" /> ${esc(m)}
@@ -2499,21 +2499,23 @@ function openAddRowModal(type, editIndex) {
       } else {
         row = { name, value, who, belongsTo };
       }
-      if (isEdit) {
+      const splitMembers = (type === 'expense')
+        ? Array.from(document.querySelectorAll('.modal-split-chk:checked')).map(i => i.value)
+        : [];
+      const numVal = parseFloat(value);
+      const shouldSplit = splitMembers.length >= 2 && !isNaN(numVal) && numVal > 0;
+      if (shouldSplit) {
+        const share = Math.round((numVal / splitMembers.length) * 100) / 100;
+        const splitRows = splitMembers.map(m => ({ ...row, who: m, value: String(share) }));
+        if (isEdit) {
+          state.months[currentMonth][type].splice(editIndex, 1, ...splitRows);
+        } else {
+          splitRows.forEach(r => state.months[currentMonth][type].push(r));
+        }
+      } else if (isEdit) {
         state.months[currentMonth][type][editIndex] = row;
       } else {
-        const splitMembers = (type === 'expense')
-          ? Array.from(document.querySelectorAll('.modal-split-chk:checked')).map(i => i.value)
-          : [];
-        const numVal = parseFloat(value);
-        if (splitMembers.length >= 2 && !isNaN(numVal) && numVal > 0) {
-          const share = Math.round((numVal / splitMembers.length) * 100) / 100;
-          splitMembers.forEach(m => {
-            state.months[currentMonth][type].push({ ...row, who: m, value: String(share) });
-          });
-        } else {
-          state.months[currentMonth][type].push(row);
-        }
+        state.months[currentMonth][type].push(row);
       }
       saveState();
       renderMain();
