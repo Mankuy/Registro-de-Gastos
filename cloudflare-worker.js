@@ -437,6 +437,19 @@ export default {
       const members = profile?.members || [];
       const month = getCurrentMonth();
 
+      // ── Comando /debug ─────────────────────────────────
+      if (msg.text && msg.text.trim() === '/debug') {
+        const keys = Object.keys(env).sort();
+        const groq = env.GROQ_API_KEY;
+        await sendMessage(env.BOT_TOKEN, chatId,
+          `🔧 <b>Debug</b>\n` +
+          `GROQ_API_KEY definida: <b>${groq ? 'SÍ' : 'NO'}</b>\n` +
+          (groq ? `Largo: ${groq.length} · empieza con: <code>${groq.slice(0,4)}...</code>\n` : '') +
+          `Variables visibles:\n<code>${keys.join(', ')}</code>`
+        );
+        return new Response('OK');
+      }
+
       // ── Comando /saldo ─────────────────────────────────
       if (msg.text && (msg.text.trim() === '/saldo' || msg.text.trim() === '/balance')) {
         if (profile?.months?.[month]) {
