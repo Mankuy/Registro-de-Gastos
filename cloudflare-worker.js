@@ -957,25 +957,16 @@ export default {
           }
         }
 
-        const match = text.match(/^(?:\/gasto\s+)?(\d+(?:[.,]\d{1,2})?)\s+(.+)$/i);
-
         let pending = null;
         let usedAI = false;
 
-        if (match) {
-          const monto = parseFloat(match[1].replace(',', '.'));
-          const rawDesc = match[2].trim();
-          const { who, cleanText } = detectMember(rawDesc, members);
-          const desc = cleanText.charAt(0).toUpperCase() + cleanText.slice(1);
-          pending = { name: desc, value: monto, who, belongsTo: '', commerce: '', paymentMethod: '', group: '' };
-        } else if (env.GROQ_API_KEY) {
-          // Fallback a IA para mensajes en lenguaje natural
+        // Intentar IA primero si está disponible (más comprensiva)
+        if (env.GROQ_API_KEY) {
           const groupLabels = Object.values(BOT_EXPENSE_GROUPS).map(g => g.label)
             .concat((profile?.customGroups || []).map(g => g.label));
           const ai = await parseExpenseWithAI(text, members, groupLabels, env.GROQ_API_KEY);
           if (ai) {
             usedAI = true;
-            // Normalizar who con fuzzy match contra miembros reales
             const rawWho = Array.isArray(ai.who) ? ai.who : (ai.who ? [ai.who] : []);
             const matchedWho = rawWho.map(w => matchMember(w, members)).filter(Boolean);
             const whoField = matchedWho.join(', ');
@@ -991,6 +982,18 @@ export default {
             if (matchedWho.length >= 2) {
               pending._splitMembers = matchedWho;
             }
+          }
+        }
+
+        // Fallback a regex simple si la IA no estuvo disponible o falló
+        if (!pending) {
+          const match = text.match(/^(?:\/gasto\s+)?(\d+(?:[.,]\d{1,2})?)\s+(.+)$/i);
+          if (match) {
+            const monto = parseFloat(match[1].replace(',', '.'));
+            const rawDesc = match[2].trim();
+            const { who, cleanText } = detectMember(rawDesc, members);
+            const desc = cleanText.charAt(0).toUpperCase() + cleanText.slice(1);
+            pending = { name: desc, value: monto, who, belongsTo: '', commerce: '', paymentMethod: '', group: '' };
           }
         }
 
