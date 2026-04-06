@@ -91,6 +91,7 @@ function addExpense(profiles, activeId, month, expense) {
   const expenses = profile.months[month].expense;
 
   // Si ya existe la categoría, sumar al valor existente
+  const today = new Date().toISOString().slice(0, 10);
   const existing = expenses.find(r => r.name.toLowerCase() === expense.name.toLowerCase());
   if (existing) {
     existing.value = String((parseFloat(existing.value) || 0) + parseFloat(expense.value));
@@ -99,6 +100,7 @@ function addExpense(profiles, activeId, month, expense) {
     if (expense.paymentMethod) existing.paymentMethod = expense.paymentMethod;
     if (expense.group) existing.group = expense.group;
     if (expense.belongsTo) existing.belongsTo = expense.belongsTo;
+    existing.date = expense.date || today;
   } else {
     expenses.push({
       name: expense.name,
@@ -107,7 +109,8 @@ function addExpense(profiles, activeId, month, expense) {
       belongsTo: expense.belongsTo || '',
       commerce: expense.commerce || '',
       paymentMethod: expense.paymentMethod || '',
-      group: expense.group || ''
+      group: expense.group || '',
+      date: expense.date || today
     });
   }
 }
@@ -175,6 +178,7 @@ function finalizeExpense(profiles, activeId, month, expense) {
     }
     const total = parseFloat(expense.value) || 0;
     const share = Math.round((total / split.length) * 100) / 100;
+    const today = new Date().toISOString().slice(0, 10);
     split.forEach(m => {
       profile.months[month].expense.push({
         name: expense.name,
@@ -183,7 +187,8 @@ function finalizeExpense(profiles, activeId, month, expense) {
         belongsTo: expense.belongsTo || '',
         commerce: expense.commerce || '',
         paymentMethod: expense.paymentMethod || '',
-        group: expense.group || ''
+        group: expense.group || '',
+        date: expense.date || today
       });
     });
   } else {
@@ -237,7 +242,7 @@ function addIncome(profiles, activeId, month, income) {
     existing.value = String((parseFloat(existing.value) || 0) + parseFloat(income.value));
     if (income.who) existing.who = income.who;
   } else {
-    incomes.push({ name: income.name, value: String(income.value), who: income.who || '' });
+    incomes.push({ name: income.name, value: String(income.value), who: income.who || '', date: new Date().toISOString().slice(0, 10) });
   }
 }
 
@@ -487,19 +492,6 @@ export default {
       const profile = profiles[activeId];
       const members = profile?.members || [];
       const month = getCurrentMonth();
-
-      // ── Comando /debug ─────────────────────────────────
-      if (msg.text && msg.text.trim() === '/debug') {
-        const keys = Object.keys(env).sort();
-        const groq = env.GROQ_API_KEY;
-        await sendMessage(env.BOT_TOKEN, chatId,
-          `🔧 <b>Debug</b>\n` +
-          `GROQ_API_KEY definida: <b>${groq ? 'SÍ' : 'NO'}</b>\n` +
-          (groq ? `Largo: ${groq.length} · empieza con: <code>${groq.slice(0,4)}...</code>\n` : '') +
-          `Variables visibles:\n<code>${keys.join(', ')}</code>`
-        );
-        return new Response('OK');
-      }
 
       // ── Comando /saldo ─────────────────────────────────
       if (msg.text && (msg.text.trim() === '/saldo' || msg.text.trim() === '/balance')) {

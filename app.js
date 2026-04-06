@@ -715,8 +715,8 @@ function addRow(type, name) {
   if (!currentMonth || !name || !name.trim()) return;
   name = name.trim();
   const row = type === 'expense'
-    ? { name, value: '', who: '', belongsTo: '', commerce: '', paymentMethod: '', group: '' }
-    : { name, value: '', who: '', belongsTo: '' };
+    ? { name, value: '', who: '', belongsTo: '', commerce: '', paymentMethod: '', group: '', date: todayISO() }
+    : { name, value: '', who: '', belongsTo: '', date: todayISO() };
   state.months[currentMonth][type].push(row);
   saveState();
   renderMain();
@@ -772,6 +772,33 @@ function updatePaymentMethod(type, index, val) {
   state.months[currentMonth][type][index].paymentMethod = val;
   saveState();
 }
+
+function todayISO() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function updateDate(type, index, val) {
+  if (!currentMonth) return;
+  if (!state.months[currentMonth][type][index]) return;
+  state.months[currentMonth][type][index].date = val || '';
+  saveState();
+  debouncedLiveUpdate();
+}
+
+// Sort state per type: { key: 'name'|'who'|'belongsTo'|'commerce'|'paymentMethod'|'value'|'date', dir: 1|-1 }
+const _sortState = { income: null, expense: null };
+
+function toggleSort(type, key) {
+  const cur = _sortState[type];
+  if (cur && cur.key === key) {
+    _sortState[type] = { key, dir: cur.dir === 1 ? -1 : 1 };
+  } else {
+    _sortState[type] = { key, dir: 1 };
+  }
+  renderMain();
+}
+window.toggleSort = toggleSort;
+window.updateDate = updateDate;
 
 function renameCategory(type, index, newName) {
   if (!currentMonth || !newName || !newName.trim()) return;
@@ -1490,11 +1517,35 @@ function renderTable(type, rows) {
   const isExpense  = type === 'expense';
   const tableClass = isExpense ? 'expense-table' : '';
 
-  const thead = isExpense
-    ? `<tr><th>Categoría</th><th>Quién</th><th>Corresponde a</th><th>Comercio</th><th>Medio de pago</th><th>Monto ($)</th><th></th></tr>`
-    : `<tr><th>Categoría</th><th>Quién</th><th>Corresponde a</th><th>Monto ($)</th><th></th></tr>`;
+  // Build sort indicator + clickable header
+  const sort = _sortState[type];
+  const th = (key, label) => {
+    const active = sort && sort.key === key;
+    const arrow = active ? (sort.dir === 1 ? ' ▲' : ' ▼') : '';
+    return `<th class="th-sort" onclick="toggleSort('${type}','${key}')" style="cursor:pointer;user-select:none;">${label}${arrow}</th>`;
+  };
 
-  const tbodyRows = rows.map((row, i) => {
+  const thead = isExpense
+    ? `<tr>${th('name','Categoría')}${th('who','Quién')}${th('belongsTo','Corresponde a')}${th('commerce','Comercio')}${th('paymentMethod','Medio de pago')}${th('date','Fecha')}${th('value','Monto ($)')}<th></th></tr>`
+    : `<tr>${th('name','Categoría')}${th('who','Quién')}${th('belongsTo','Corresponde a')}${th('date','Fecha')}${th('value','Monto ($)')}<th></th></tr>`;
+
+  // Build indexed list so mutating handlers still reference original index
+  let indexed = rows.map((row, i) => ({ row, i }));
+  if (sort) {
+    const getVal = (r) => {
+      const v = r[sort.key];
+      if (sort.key === 'value') return parseFloat(v) || 0;
+      return (v || '').toString().toLowerCase();
+    };
+    indexed = indexed.slice().sort((a, b) => {
+      const va = getVal(a.row), vb = getVal(b.row);
+      if (va < vb) return -1 * sort.dir;
+      if (va > vb) return 1 * sort.dir;
+      return 0;
+    });
+  }
+
+  const tbodyRows = indexed.map(({ row, i }) => {
     const groupBadge = isExpense ? getGroupBadgeHTML(row.group || '', type, i) : '';
 
     const categoryCell = `
@@ -1540,6 +1591,14 @@ function renderTable(type, rows) {
              onkeydown="if(event.key==='Enter')this.blur()" />
          </td>` : '';
 
+    const dateCell = `
+      <td>
+        <input class="table-input" type="date"
+          value="${esc(row.date || '')}"
+          style="width:130px"
+          onchange="updateDate('${type}',${i},this.value)" />
+      </td>`;
+
     const amountCell = `
       <td>
         <input class="amount-input" type="number" min="0" step="0.01"
@@ -1555,14 +1614,14 @@ function renderTable(type, rows) {
         </div>
       </td>`;
 
-    return `<tr>${categoryCell}${whoCell}${belongsToCell}${commerceCell}${paymentCell}${amountCell}${deleteCell}</tr>`;
+    return `<tr>${categoryCell}${whoCell}${belongsToCell}${commerceCell}${paymentCell}${dateCell}${amountCell}${deleteCell}</tr>`;
   }).join('');
 
   const total = rows.reduce((acc, r) => acc + (parseFloat(r.value) || 0), 0);
 
   const totalRow = isExpense
-    ? `<tr class="total-row"><td>Total</td><td></td><td></td><td></td><td></td><td class="total-expense">${fmt(total)}</td><td></td></tr>`
-    : `<tr class="total-row"><td>Total</td><td></td><td></td><td class="total-income">${fmt(total)}</td><td></td></tr>`;
+    ? `<tr class="total-row"><td>Total</td><td></td><td></td><td></td><td></td><td></td><td class="total-expense">${fmt(total)}</td><td></td></tr>`
+    : `<tr class="total-row"><td>Total</td><td></td><td></td><td></td><td class="total-income">${fmt(total)}</td><td></td></tr>`;
 
   return `<table class="${tableClass}"><thead>${thead}</thead><tbody>${tbodyRows}${totalRow}</tbody></table>`;
 }
@@ -2487,6 +2546,7 @@ function openAddRowModal(type, editIndex) {
       const who = document.getElementById('modal-row-who')?.value || '';
       const belongsTo = document.getElementById('modal-row-belongs')?.value || '';
       let row;
+      const existingDate = (isEdit && existing && existing.date) ? existing.date : todayISO();
       if (type === 'expense') {
         const commerce = (document.getElementById('modal-row-commerce')?.value || '').trim();
         const paymentMethod = (document.getElementById('modal-row-payment')?.value || '').trim();
@@ -2495,9 +2555,9 @@ function openAddRowModal(type, editIndex) {
           state.commerces.push(commerce);
           updateCommercesDatalist();
         }
-        row = { name, value, who, belongsTo, commerce, paymentMethod, group };
+        row = { name, value, who, belongsTo, commerce, paymentMethod, group, date: existingDate };
       } else {
-        row = { name, value, who, belongsTo };
+        row = { name, value, who, belongsTo, date: existingDate };
       }
       const splitMembers = (type === 'expense')
         ? Array.from(document.querySelectorAll('.modal-split-chk:checked')).map(i => i.value)
