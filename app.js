@@ -1546,7 +1546,10 @@ function renderTable(type, rows) {
 
     const deleteCell = `
       <td>
-        <button class="btn-del" onclick="deleteRow('${type}',${i})" title="Eliminar">✕</button>
+        <div style="display:flex;gap:2px;">
+          <button class="btn-edit-inline" onclick="openEditRowModal('${type}',${i})" title="Editar">✏️</button>
+          <button class="btn-del" onclick="deleteRow('${type}',${i})" title="Eliminar">✕</button>
+        </div>
       </td>`;
 
     return `<tr>${categoryCell}${whoCell}${belongsToCell}${commerceCell}${paymentCell}${amountCell}${deleteCell}</tr>`;
@@ -2282,9 +2285,13 @@ function openGroupsModal() {
     const rows = custom.length === 0
       ? `<p style="color:var(--text-soft);font-size:0.85rem;">No hay grupos personalizados aún.</p>`
       : custom.map((g, i) => `
-          <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.4rem;">
-            <span style="font-size:1.2rem;width:1.6rem;text-align:center;">${esc(g.emoji)}</span>
-            <span style="flex:1;font-size:0.9rem;">${esc(g.label)}</span>
+          <div style="display:flex;align-items:center;gap:0.4rem;margin-bottom:0.4rem;">
+            <input type="text" maxlength="2" value="${esc(g.emoji || '🏷️')}"
+              style="width:2.8rem;text-align:center;font-size:1.1rem;"
+              onchange="updateCustomGroup(${i},'emoji',this.value)" />
+            <input type="text" maxlength="20" value="${esc(g.label)}"
+              style="flex:1;font-size:0.9rem;"
+              onchange="updateCustomGroup(${i},'label',this.value)" />
             <button class="btn-cancel" style="padding:2px 8px;font-size:0.78rem;" onclick="deleteCustomGroup(${i})">✕</button>
           </div>`).join('');
     return `
@@ -2322,6 +2329,19 @@ window.addCustomGroup = function() {
   if (window._refreshGroupsModal) window._refreshGroupsModal();
 };
 
+window.updateCustomGroup = function(i, field, value) {
+  if (!state.customGroups || !state.customGroups[i]) return;
+  const v = (value || '').trim();
+  if (field === 'label') {
+    if (!v) { if (window._refreshGroupsModal) window._refreshGroupsModal(); return; }
+    state.customGroups[i].label = v;
+  } else if (field === 'emoji') {
+    state.customGroups[i].emoji = v || '🏷️';
+  }
+  saveState();
+  renderMain();
+};
+
 window.deleteCustomGroup = function(i) {
   if (!state.customGroups) return;
   state.customGroups.splice(i, 1);
@@ -2352,7 +2372,17 @@ function openAddMonthModal() {
   }, 50);
 }
 
-function openAddRowModal(type) {
+function openEditRowModal(type, index) {
+  openAddRowModal(type, index);
+}
+window.openEditRowModal = openEditRowModal;
+
+function openAddRowModal(type, editIndex) {
+  const isEdit = typeof editIndex === 'number';
+  const existing = isEdit && currentMonth
+    ? (state.months[currentMonth][type] || [])[editIndex]
+    : null;
+  if (isEdit && !existing) { showToast('Fila no encontrada'); return; }
   const typeLabel = type === 'income' ? 'ingreso' : 'egreso';
   const members = state.members || [];
   const whoOpts = ['<option value="">(sin asignar)</option>']
@@ -2393,9 +2423,9 @@ function openAddRowModal(type) {
   `;
 
   openModal(
-    '+ Agregar ' + typeLabel,
+    (isEdit ? '✏️ Editar ' : '+ Agregar ') + typeLabel,
     body,
-    'Agregar',
+    isEdit ? 'Guardar' : 'Agregar',
     function () {
       const name = (document.getElementById('modal-row-name')?.value || '').trim();
       if (!name) { showToast('Ingresá un nombre para la categoría'); return; }
@@ -2416,14 +2446,40 @@ function openAddRowModal(type) {
       } else {
         row = { name, value, who, belongsTo };
       }
-      state.months[currentMonth][type].push(row);
+      if (isEdit) {
+        state.months[currentMonth][type][editIndex] = row;
+      } else {
+        state.months[currentMonth][type].push(row);
+      }
       saveState();
       renderMain();
       closeModal();
     }
   );
-  setTimeout(() => { document.getElementById('modal-row-name')?.focus(); }, 50);
+  setTimeout(() => {
+    const nameInput = document.getElementById('modal-row-name');
+    if (nameInput) { nameInput.focus(); }
+    // Prefill cuando editamos
+    if (isEdit && existing) {
+      if (nameInput) nameInput.value = existing.name || '';
+      const v = document.getElementById('modal-row-value');
+      if (v) v.value = existing.value || '';
+      const w = document.getElementById('modal-row-who');
+      if (w) w.value = existing.who || '';
+      const b = document.getElementById('modal-row-belongs');
+      if (b) b.value = existing.belongsTo || '';
+      if (type === 'expense') {
+        const c = document.getElementById('modal-row-commerce');
+        if (c) c.value = existing.commerce || '';
+        const p = document.getElementById('modal-row-payment');
+        if (p) p.value = existing.paymentMethod || '';
+        const g = document.getElementById('modal-row-group');
+        if (g) g.value = existing.group || '';
+      }
+    }
+  }, 50);
 }
+window.openAddRowModal = openAddRowModal;
 
 // ════════════════════════════════════════════════════════════
 //  DRAWER SYSTEM

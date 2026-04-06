@@ -459,13 +459,14 @@ export default {
 
         // Iniciar flujo para completar grupo y corresponde a.
         profiles._sessions = profiles._sessions || {};
-        profiles._sessions[String(chatId)] = { expense, step: 'group', month };
+        profiles._sessions[String(chatId)] = { expense, step: 'belongs', month };
         await writeProfiles(env.FIREBASE_PROJECT, env.FIREBASE_USER_ID, token, profiles, activeId);
 
         const details = extracted.details ? `\n📝 ${extracted.details}` : '';
+        const belongsOpts = ['Hogar'].concat(members).join(', ');
         await sendMessage(env.BOT_TOKEN, chatId,
           `🧾 Ticket leído (${month})\n💰 $${Number(extracted.total).toLocaleString('es-UY')} en "${expense.name}"${expense.commerce ? ' · ' + expense.commerce : ''}${expense.paymentMethod ? ' · ' + expense.paymentMethod : ''}${who ? ' · ' + who : ''}${details}\n\n` +
-          `🏷️ ¿Grupo? (${groupsListText(profile)})\n` +
+          `👥 ¿Corresponde a? (${belongsOpts})\n` +
           `<i>/skip · /listo · /cancelar</i>`
         );
         return new Response('OK');
@@ -499,12 +500,20 @@ export default {
             return new Response('OK');
           }
 
+          if (session.step === 'belongs') {
+            if (!skip) session.expense.belongsTo = resolveBelongsTo(text, members);
+            session.step = 'group';
+            profiles._sessions[sessionKey] = session;
+            await writeProfiles(env.FIREBASE_PROJECT, env.FIREBASE_USER_ID, token, profiles, activeId);
+            await sendMessage(env.BOT_TOKEN, chatId, `🏷️ ¿Grupo? (${groupsListText(profile)})\n<i>/skip · /listo · /cancelar</i>`);
+            return new Response('OK');
+          }
           if (session.step === 'group') {
             if (!skip) session.expense.group = resolveGroupKey(text, profile);
             session.step = 'commerce';
             profiles._sessions[sessionKey] = session;
             await writeProfiles(env.FIREBASE_PROJECT, env.FIREBASE_USER_ID, token, profiles, activeId);
-            await sendMessage(env.BOT_TOKEN, chatId, '🏪 ¿Comercio? (ej: Devoto)\n<i>/skip para omitir · /listo para guardar ya · /cancelar</i>');
+            await sendMessage(env.BOT_TOKEN, chatId, '🏪 ¿Comercio? (ej: Devoto)\n<i>/skip · /listo · /cancelar</i>');
             return new Response('OK');
           }
           if (session.step === 'commerce') {
@@ -517,15 +526,6 @@ export default {
           }
           if (session.step === 'payment') {
             if (!skip) session.expense.paymentMethod = text;
-            session.step = 'belongs';
-            profiles._sessions[sessionKey] = session;
-            await writeProfiles(env.FIREBASE_PROJECT, env.FIREBASE_USER_ID, token, profiles, activeId);
-            const opts = ['Hogar'].concat(members).join(', ');
-            await sendMessage(env.BOT_TOKEN, chatId, `👥 ¿Corresponde a? (${opts})\n<i>/skip · /listo · /cancelar</i>`);
-            return new Response('OK');
-          }
-          if (session.step === 'belongs') {
-            if (!skip) session.expense.belongsTo = resolveBelongsTo(text, members);
             addExpense(profiles, activeId, session.month || month, session.expense);
             delete profiles._sessions[sessionKey];
             await writeProfiles(env.FIREBASE_PROJECT, env.FIREBASE_USER_ID, token, profiles, activeId);
@@ -559,12 +559,13 @@ export default {
           paymentMethod: '',
           group: ''
         };
-        profiles._sessions[sessionKey] = { expense: pending, step: 'group', month };
+        profiles._sessions[sessionKey] = { expense: pending, step: 'belongs', month };
         await writeProfiles(env.FIREBASE_PROJECT, env.FIREBASE_USER_ID, token, profiles, activeId);
 
+        const belongsOpts = ['Hogar'].concat(members).join(', ');
         await sendMessage(env.BOT_TOKEN, chatId,
           `📝 Gasto pendiente en ${month}\n💰 $${monto.toLocaleString('es-UY')} en "${desc}"${who ? ' · ' + who : ''}\n\n` +
-          `🏷️ ¿Grupo? (${groupsListText(profile)})\n` +
+          `👥 ¿Corresponde a? (${belongsOpts})\n` +
           `<i>/skip para omitir · /listo para guardar ya · /cancelar</i>`
         );
       }
