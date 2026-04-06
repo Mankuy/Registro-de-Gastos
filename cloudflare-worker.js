@@ -97,16 +97,75 @@ function addExpense(profiles, activeId, month, expense) {
     if (expense.who) existing.who = expense.who;
     if (expense.commerce) existing.commerce = expense.commerce;
     if (expense.paymentMethod) existing.paymentMethod = expense.paymentMethod;
+    if (expense.group) existing.group = expense.group;
+    if (expense.belongsTo) existing.belongsTo = expense.belongsTo;
   } else {
     expenses.push({
       name: expense.name,
       value: String(expense.value),
       who: expense.who || '',
+      belongsTo: expense.belongsTo || '',
       commerce: expense.commerce || '',
       paymentMethod: expense.paymentMethod || '',
       group: expense.group || ''
     });
   }
+}
+
+// ── Grupos de egreso (deben coincidir con la app) ────────
+const BOT_EXPENSE_GROUPS = {
+  fijos:    { label: 'Fijos',    emoji: '🏠' },
+  comida:   { label: 'Comida',   emoji: '🛒' },
+  afuera:   { label: 'Afuera',   emoji: '🍽️' },
+  animales: { label: 'Animales', emoji: '🐾' },
+  ninos:    { label: 'Niñxs',    emoji: '👶' },
+  salud:    { label: 'Salud',    emoji: '💊' },
+  vehiculo: { label: 'Vehículo', emoji: '🚗' },
+  ocio:     { label: 'Ocio',     emoji: '🎭' },
+  otros:    { label: 'Otros',    emoji: '📦' }
+};
+
+function resolveGroupKey(text, profile) {
+  if (!text) return '';
+  const t = text.trim().toLowerCase();
+  // Match built-in
+  for (const k of Object.keys(BOT_EXPENSE_GROUPS)) {
+    const g = BOT_EXPENSE_GROUPS[k];
+    if (t === k || t === g.label.toLowerCase() || t === g.emoji) return k;
+  }
+  // Match custom groups
+  const custom = profile?.customGroups || [];
+  for (const g of custom) {
+    if (t === (g.label || '').toLowerCase() || t === g.emoji || t === g.key) return g.key;
+  }
+  return '';
+}
+
+function groupsListText(profile) {
+  const builtin = Object.values(BOT_EXPENSE_GROUPS).map(g => `${g.emoji} ${g.label}`);
+  const custom = (profile?.customGroups || []).map(g => `${g.emoji || '🏷️'} ${g.label}`);
+  return builtin.concat(custom).join(', ');
+}
+
+function resolveBelongsTo(text, members) {
+  if (!text) return '';
+  const t = text.trim().toLowerCase();
+  if (t === 'hogar') return 'Hogar';
+  const m = (members || []).find(mm => mm.toLowerCase() === t);
+  return m || text.trim();
+}
+
+function finalizeMsg(expense, month) {
+  const parts = [
+    `✅ ¡Gasto guardado en ${month}!`,
+    `💰 $${Number(expense.value).toLocaleString('es-UY')} en "${expense.name}"`
+  ];
+  if (expense.who) parts.push(`👤 ${expense.who}`);
+  if (expense.belongsTo) parts.push(`👥 Corresponde a: ${expense.belongsTo}`);
+  if (expense.group && BOT_EXPENSE_GROUPS[expense.group]) parts.push(`🏷️ ${BOT_EXPENSE_GROUPS[expense.group].label}`);
+  if (expense.commerce) parts.push(`🏪 ${expense.commerce}`);
+  if (expense.paymentMethod) parts.push(`💳 ${expense.paymentMethod}`);
+  return parts.join('\n');
 }
 
 // ── Agregar ingreso al perfil ────────────────────────────
@@ -392,17 +451,22 @@ export default {
           name: extracted.suggestedCategory || extracted.commerce || 'Ticket',
           value: extracted.total,
           who: who,
+          belongsTo: '',
           commerce: extracted.commerce || 'Ticket',
           paymentMethod: extracted.paymentMethod || '',
           group: ''
         };
 
-        addExpense(profiles, activeId, month, expense);
+        // Iniciar flujo para completar grupo y corresponde a.
+        profiles._sessions = profiles._sessions || {};
+        profiles._sessions[String(chatId)] = { expense, step: 'group', month };
         await writeProfiles(env.FIREBASE_PROJECT, env.FIREBASE_USER_ID, token, profiles, activeId);
 
         const details = extracted.details ? `\n📝 ${extracted.details}` : '';
         await sendMessage(env.BOT_TOKEN, chatId,
-          `✅ ¡Ticket procesado en ${month}!\n💰 $${Number(extracted.total).toLocaleString('es-UY')} en "${expense.name}"${who ? ' por ' + who : ''}.${details}`
+          `🧾 Ticket leído (${month})\n💰 $${Number(extracted.total).toLocaleString('es-UY')} en "${expense.name}"${expense.commerce ? ' · ' + expense.commerce : ''}${expense.paymentMethod ? ' · ' + expense.paymentMethod : ''}${who ? ' · ' + who : ''}${details}\n\n` +
+          `🏷️ ¿Grupo? (${groupsListText(profile)})\n` +
+          `<i>/skip · /listo · /cancelar</i>`
         );
         return new Response('OK');
       }
@@ -410,6 +474,66 @@ export default {
       // ── Texto: gasto manual ────────────────────────────
       if (msg.text) {
         const text = msg.text.trim();
+
+        // Sesiones conversacionales (completar datos de un gasto)
+        profiles._sessions = profiles._sessions || {};
+        const sessionKey = String(chatId);
+        const session = profiles._sessions[sessionKey];
+
+        if (session && session.expense && session.step) {
+          const lower = text.toLowerCase();
+          const skip = lower === '/skip' || lower === '/omitir' || lower === '-';
+
+          if (lower === '/cancelar') {
+            delete profiles._sessions[sessionKey];
+            await writeProfiles(env.FIREBASE_PROJECT, env.FIREBASE_USER_ID, token, profiles, activeId);
+            await sendMessage(env.BOT_TOKEN, chatId, '❌ Carga cancelada.');
+            return new Response('OK');
+          }
+
+          if (lower === '/listo' || lower === '/guardar') {
+            addExpense(profiles, activeId, session.month || month, session.expense);
+            delete profiles._sessions[sessionKey];
+            await writeProfiles(env.FIREBASE_PROJECT, env.FIREBASE_USER_ID, token, profiles, activeId);
+            await sendMessage(env.BOT_TOKEN, chatId, finalizeMsg(session.expense, session.month || month));
+            return new Response('OK');
+          }
+
+          if (session.step === 'group') {
+            if (!skip) session.expense.group = resolveGroupKey(text, profile);
+            session.step = 'commerce';
+            profiles._sessions[sessionKey] = session;
+            await writeProfiles(env.FIREBASE_PROJECT, env.FIREBASE_USER_ID, token, profiles, activeId);
+            await sendMessage(env.BOT_TOKEN, chatId, '🏪 ¿Comercio? (ej: Devoto)\n<i>/skip para omitir · /listo para guardar ya · /cancelar</i>');
+            return new Response('OK');
+          }
+          if (session.step === 'commerce') {
+            if (!skip) session.expense.commerce = text;
+            session.step = 'payment';
+            profiles._sessions[sessionKey] = session;
+            await writeProfiles(env.FIREBASE_PROJECT, env.FIREBASE_USER_ID, token, profiles, activeId);
+            await sendMessage(env.BOT_TOKEN, chatId, '💳 ¿Medio de pago? (efectivo, débito, crédito…)\n<i>/skip · /listo · /cancelar</i>');
+            return new Response('OK');
+          }
+          if (session.step === 'payment') {
+            if (!skip) session.expense.paymentMethod = text;
+            session.step = 'belongs';
+            profiles._sessions[sessionKey] = session;
+            await writeProfiles(env.FIREBASE_PROJECT, env.FIREBASE_USER_ID, token, profiles, activeId);
+            const opts = ['Hogar'].concat(members).join(', ');
+            await sendMessage(env.BOT_TOKEN, chatId, `👥 ¿Corresponde a? (${opts})\n<i>/skip · /listo · /cancelar</i>`);
+            return new Response('OK');
+          }
+          if (session.step === 'belongs') {
+            if (!skip) session.expense.belongsTo = resolveBelongsTo(text, members);
+            addExpense(profiles, activeId, session.month || month, session.expense);
+            delete profiles._sessions[sessionKey];
+            await writeProfiles(env.FIREBASE_PROJECT, env.FIREBASE_USER_ID, token, profiles, activeId);
+            await sendMessage(env.BOT_TOKEN, chatId, finalizeMsg(session.expense, session.month || month));
+            return new Response('OK');
+          }
+        }
+
         const match = text.match(/^(?:\/gasto\s+)?(\d+(?:[.,]\d{1,2})?)\s+(.+)$/i);
 
         if (!match) {
@@ -424,20 +548,24 @@ export default {
         const { who, cleanText } = detectMember(rawDesc, members);
         const desc = cleanText.charAt(0).toUpperCase() + cleanText.slice(1);
 
-        const expense = {
+        // Crear sesión pendiente en lugar de guardar directo.
+        // Así vamos pidiendo los datos que faltan para mejor calidad de info.
+        const pending = {
           name: desc,
           value: monto,
           who: who,
+          belongsTo: '',
           commerce: '',
           paymentMethod: '',
           group: ''
         };
-
-        addExpense(profiles, activeId, month, expense);
+        profiles._sessions[sessionKey] = { expense: pending, step: 'group', month };
         await writeProfiles(env.FIREBASE_PROJECT, env.FIREBASE_USER_ID, token, profiles, activeId);
 
         await sendMessage(env.BOT_TOKEN, chatId,
-          `✅ ¡Gasto anotado en ${month}!\n💰 $${monto.toLocaleString('es-UY')} en "${desc}"${who ? ' por ' + who + '.' : ''}`
+          `📝 Gasto pendiente en ${month}\n💰 $${monto.toLocaleString('es-UY')} en "${desc}"${who ? ' · ' + who : ''}\n\n` +
+          `🏷️ ¿Grupo? (${groupsListText(profile)})\n` +
+          `<i>/skip para omitir · /listo para guardar ya · /cancelar</i>`
         );
       }
 

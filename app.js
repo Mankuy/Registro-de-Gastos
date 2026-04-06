@@ -2354,15 +2354,72 @@ function openAddMonthModal() {
 
 function openAddRowModal(type) {
   const typeLabel = type === 'income' ? 'ingreso' : 'egreso';
+  const members = state.members || [];
+  const whoOpts = ['<option value="">(sin asignar)</option>']
+    .concat(members.map(m => `<option value="${esc(m)}">${esc(m)}</option>`)).join('');
+  const belongsOpts = ['<option value="">(sin asignar)</option>', '<option value="Hogar">Hogar</option>']
+    .concat(members.map(m => `<option value="${esc(m)}">${esc(m)}</option>`)).join('');
+
+  let extraFields = '';
+  if (type === 'expense') {
+    const groups = getEffectiveGroups();
+    const order = getEffectiveGroupOrder();
+    const groupOpts = order.map(k => {
+      const g = groups[k] || EXPENSE_GROUPS[''];
+      const label = k ? `${g.emoji} ${g.label}` : '○ (sin grupo)';
+      return `<option value="${esc(k)}">${esc(label)}</option>`;
+    }).join('');
+    extraFields = `
+      <label class="field-label" for="modal-row-commerce">Comercio</label>
+      <input type="text" id="modal-row-commerce" list="dl-commerces" placeholder="Ej: Devoto" />
+      <label class="field-label" for="modal-row-payment">Medio de pago</label>
+      <input type="text" id="modal-row-payment" placeholder="Ej: Efectivo, Débito, Crédito..." />
+      <label class="field-label" for="modal-row-group">Grupo</label>
+      <select id="modal-row-group">${groupOpts}</select>
+    `;
+  }
+
+  const body = `
+    <label class="field-label" for="modal-row-name">Nombre de la categoría *</label>
+    <input type="text" id="modal-row-name" placeholder="Ej: Supermercado" />
+    <label class="field-label" for="modal-row-value">Monto</label>
+    <input type="number" id="modal-row-value" inputmode="decimal" placeholder="0" />
+    <label class="field-label" for="modal-row-who">Quién</label>
+    <select id="modal-row-who">${whoOpts}</select>
+    <label class="field-label" for="modal-row-belongs">Corresponde a</label>
+    <select id="modal-row-belongs">${belongsOpts}</select>
+    ${extraFields}
+    <p style="font-size:0.75rem;color:var(--text-soft);margin-top:0.6rem;">Solo el nombre es obligatorio. Completá el resto para tener mejor calidad de información.</p>
+  `;
+
   openModal(
-    '+ Agregar categoría de ' + typeLabel,
-    `<label class="field-label" for="modal-row-name">Nombre de la categoría</label>
-     <input type="text" id="modal-row-name" placeholder="Ej: Supermercado" />`,
+    '+ Agregar ' + typeLabel,
+    body,
     'Agregar',
     function () {
-      const input = document.getElementById('modal-row-name');
-      if (input && input.value.trim()) { addRow(type, input.value.trim()); closeModal(); }
-      else showToast('Ingresá un nombre para la categoría');
+      const name = (document.getElementById('modal-row-name')?.value || '').trim();
+      if (!name) { showToast('Ingresá un nombre para la categoría'); return; }
+      if (!currentMonth) { showToast('No hay mes activo'); return; }
+      const value = (document.getElementById('modal-row-value')?.value || '').trim();
+      const who = document.getElementById('modal-row-who')?.value || '';
+      const belongsTo = document.getElementById('modal-row-belongs')?.value || '';
+      let row;
+      if (type === 'expense') {
+        const commerce = (document.getElementById('modal-row-commerce')?.value || '').trim();
+        const paymentMethod = (document.getElementById('modal-row-payment')?.value || '').trim();
+        const group = document.getElementById('modal-row-group')?.value || '';
+        if (commerce && !state.commerces.includes(commerce)) {
+          state.commerces.push(commerce);
+          updateCommercesDatalist();
+        }
+        row = { name, value, who, belongsTo, commerce, paymentMethod, group };
+      } else {
+        row = { name, value, who, belongsTo };
+      }
+      state.months[currentMonth][type].push(row);
+      saveState();
+      renderMain();
+      closeModal();
     }
   );
   setTimeout(() => { document.getElementById('modal-row-name')?.focus(); }, 50);
