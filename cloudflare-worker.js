@@ -452,12 +452,123 @@ async function downloadTelegramPhoto(botToken, fileId) {
 }
 
 // ── Enviar mensaje por Telegram ──────────────────────────
-async function sendMessage(botToken, chatId, text) {
+async function sendMessage(botToken, chatId, text, replyMarkup) {
+  const body = { chat_id: chatId, text, parse_mode: 'HTML' };
+  if (replyMarkup) body.reply_markup = replyMarkup;
   await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' })
+    body: JSON.stringify(body)
   });
+}
+
+// ── Helpers de teclados inline ──────────────────────────
+function kb(rows) {
+  return {
+    inline_keyboard: rows.map(row => row.map(([text, data]) => ({ text, callback_data: data })))
+  };
+}
+
+function chunkPairs(arr) {
+  const rows = [];
+  for (let i = 0; i < arr.length; i += 2) rows.push(arr.slice(i, i + 2));
+  return rows;
+}
+
+function whoKeyboard(members) {
+  const single = members.map(m => [m, m]);
+  const rows = chunkPairs(single);
+  if (members.length >= 2) {
+    const pair = members.slice(0, 2).join(', ');
+    rows.push([[`👫 ${pair}`, pair]]);
+  }
+  if (members.length >= 3) {
+    const all = members.join(', ');
+    rows.push([[`👨‍👩‍👧 Todos`, all]]);
+  }
+  rows.push([['⏭️ Skip', '/skip'], ['✅ Listo', '/listo'], ['❌ Cancelar', '/cancelar']]);
+  return kb(rows);
+}
+
+function belongsKeyboard(members) {
+  const rows = [[['🏠 Hogar', 'Hogar']]];
+  chunkPairs(members.map(m => [m, m])).forEach(r => rows.push(r));
+  rows.push([['⏭️ Skip', '/skip'], ['✅ Listo', '/listo'], ['❌ Cancelar', '/cancelar']]);
+  return kb(rows);
+}
+
+function groupKeyboard(profile) {
+  const builtin = Object.values(BOT_EXPENSE_GROUPS).map(g => [`${g.emoji} ${g.label}`, g.label]);
+  const custom = (profile?.customGroups || []).map(g => [`${g.emoji || '🏷️'} ${g.label}`, g.label]);
+  const rows = chunkPairs(builtin.concat(custom));
+  rows.push([['⏭️ Skip', '/skip'], ['✅ Listo', '/listo'], ['❌ Cancelar', '/cancelar']]);
+  return kb(rows);
+}
+
+function paymentKeyboard() {
+  return kb([
+    [['💵 Efectivo', 'Efectivo'], ['💳 Débito', 'Débito']],
+    [['🏦 Crédito', 'Crédito'], ['📱 Mercado Pago', 'Mercado Pago']],
+    [['🔁 Transferencia', 'Transferencia']],
+    [['⏭️ Skip', '/skip'], ['✅ Listo', '/listo'], ['❌ Cancelar', '/cancelar']]
+  ]);
+}
+
+function stepControlsKeyboard() {
+  return kb([[['⏭️ Skip', '/skip'], ['✅ Listo', '/listo'], ['❌ Cancelar', '/cancelar']]]);
+}
+
+async function answerCallback(botToken, callbackId) {
+  try {
+    await fetch(`https://api.telegram.org/bot${botToken}/answerCallbackQuery`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ callback_query_id: callbackId })
+    });
+  } catch (_) {}
+}
+
+// ── Parsear gasto con IA (Groq, gratis) ─────────────────
+async function parseExpenseWithAI(text, members, groupLabels, apiKey) {
+  if (!apiKey) return null;
+  const sys = `Sos un parser de gastos familiares en español uruguayo.
+Extraé del mensaje libre un JSON con estos campos:
+{"amount": number, "name": string, "who": string|string[], "belongsTo": string, "group": string, "commerce": string, "paymentMethod": string}
+
+Reglas:
+- "amount" en pesos uruguayos (solo número, sin símbolo).
+- "name" descripción corta del gasto (ej: "Supermercado", "UTE", "Nafta").
+- "who" quien hizo el gasto. Puede ser un string (uno) o un array (si fue compartido entre varios). Miembros válidos: ${members.join(', ') || '(ninguno)'}.
+- "belongsTo" puede ser "Hogar" o uno de los miembros.
+- "group" debe ser uno de: ${groupLabels.join(', ')}.
+- "commerce" nombre del comercio si lo menciona.
+- "paymentMethod" uno de: Efectivo, Débito, Crédito, Transferencia, Mercado Pago.
+- Si un campo no aparece en el mensaje, devolvelo como string vacío "" (o 0 si es amount).
+- Respondé SOLO con el JSON, sin texto adicional, sin markdown.`;
+  try {
+    const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'llama-3.1-8b-instant',
+        temperature: 0,
+        response_format: { type: 'json_object' },
+        messages: [
+          { role: 'system', content: sys },
+          { role: 'user', content: text }
+        ]
+      })
+    });
+    if (!r.ok) return null;
+    const j = await r.json();
+    const content = j.choices?.[0]?.message?.content;
+    if (!content) return null;
+    const parsed = JSON.parse(content);
+    if (!parsed || typeof parsed.amount !== 'number' || parsed.amount <= 0 || !parsed.name) return null;
+    return parsed;
+  } catch (_) {
+    return null;
+  }
 }
 
 // ── Handler principal ────────────────────────────────────
@@ -467,7 +578,13 @@ export default {
 
     try {
       const payload = await request.json();
-      const msg = payload.message;
+      let msg = payload.message;
+      // Si es un tap en un botón inline, lo transformamos en un mensaje de texto
+      if (!msg && payload.callback_query) {
+        const cq = payload.callback_query;
+        await answerCallback(env.BOT_TOKEN, cq.id);
+        msg = { chat: cq.message.chat, text: cq.data };
+      }
       if (!msg) return new Response('OK');
 
       const chatId = msg.chat.id;
@@ -627,8 +744,8 @@ export default {
         const details = extracted.details ? `\n📝 ${extracted.details}` : '';
         await sendMessage(env.BOT_TOKEN, chatId,
           `🧾 Ticket leído (${month})\n💰 Detecté <b>$${Number(extracted.total).toLocaleString('es-UY')}</b> en "${expense.name}"${expense.commerce ? ' · ' + expense.commerce : ''}${expense.paymentMethod ? ' · ' + expense.paymentMethod : ''}${who ? ' · ' + who : ''}${details}\n\n` +
-          `❓ ¿El monto es correcto? Respondé <code>/si</code> para confirmar, o escribime el monto correcto (ej: <code>2580</code>).\n` +
-          `<i>/cancelar para descartar</i>`
+          `❓ ¿El monto es correcto? Tocá ✅ o escribime el monto correcto (ej: <code>2580</code>).`,
+          kb([[['✅ Sí, es correcto', '/si'], ['❌ Cancelar', '/cancelar']]])
         );
         return new Response('OK');
       }
@@ -693,8 +810,9 @@ export default {
             session.step = 'who';
             profiles._sessions[sessionKey] = session;
             await writeProfiles(env.FIREBASE_PROJECT, env.FIREBASE_USER_ID, token, profiles, activeId);
-            const whoOpts = members.join(', ');
-            await sendMessage(env.BOT_TOKEN, chatId, `✅ Monto: $${Number(session.expense.value).toLocaleString('es-UY')}\n\n👤 ¿Quién hizo el gasto? (${whoOpts})\n<i>💡 Para dividirlo entre varios: separalos por coma (ej: Facu, Lu)</i>\n<i>/skip · /listo · /cancelar</i>`);
+            await sendMessage(env.BOT_TOKEN, chatId,
+              `✅ Monto: $${Number(session.expense.value).toLocaleString('es-UY')}\n\n👤 ¿Quién hizo el gasto?\n<i>💡 Tocá un botón o escribilo. Varios separados por coma = compartido.</i>`,
+              whoKeyboard(members));
             return new Response('OK');
           }
           if (session.step === 'who') {
@@ -713,8 +831,7 @@ export default {
             session.step = 'belongs';
             profiles._sessions[sessionKey] = session;
             await writeProfiles(env.FIREBASE_PROJECT, env.FIREBASE_USER_ID, token, profiles, activeId);
-            const belongsOpts = ['Hogar'].concat(members).join(', ');
-            await sendMessage(env.BOT_TOKEN, chatId, `👥 ¿Corresponde a? (${belongsOpts})\n<i>/skip · /listo · /cancelar</i>`);
+            await sendMessage(env.BOT_TOKEN, chatId, `👥 ¿Corresponde a?`, belongsKeyboard(members));
             return new Response('OK');
           }
           if (session.step === 'belongs') {
@@ -724,7 +841,7 @@ export default {
             session.step = 'group';
             profiles._sessions[sessionKey] = session;
             await writeProfiles(env.FIREBASE_PROJECT, env.FIREBASE_USER_ID, token, profiles, activeId);
-            await sendMessage(env.BOT_TOKEN, chatId, `🏷️ ¿Grupo? (${groupsListText(profile)})\n<i>/skip · /listo · /cancelar</i>`);
+            await sendMessage(env.BOT_TOKEN, chatId, `🏷️ ¿Grupo?`, groupKeyboard(profile));
             return new Response('OK');
           }
           if (session.step === 'group') {
@@ -732,7 +849,7 @@ export default {
             session.step = 'commerce';
             profiles._sessions[sessionKey] = session;
             await writeProfiles(env.FIREBASE_PROJECT, env.FIREBASE_USER_ID, token, profiles, activeId);
-            await sendMessage(env.BOT_TOKEN, chatId, '🏪 ¿Comercio? (ej: Devoto)\n<i>/skip · /listo · /cancelar</i>');
+            await sendMessage(env.BOT_TOKEN, chatId, '🏪 ¿Comercio? (ej: Devoto, o escribilo)', stepControlsKeyboard());
             return new Response('OK');
           }
           if (session.step === 'commerce') {
@@ -740,7 +857,7 @@ export default {
             session.step = 'payment';
             profiles._sessions[sessionKey] = session;
             await writeProfiles(env.FIREBASE_PROJECT, env.FIREBASE_USER_ID, token, profiles, activeId);
-            await sendMessage(env.BOT_TOKEN, chatId, '💳 ¿Medio de pago? (efectivo, débito, crédito…)\n<i>/skip · /listo · /cancelar</i>');
+            await sendMessage(env.BOT_TOKEN, chatId, '💳 ¿Medio de pago?', paymentKeyboard());
             return new Response('OK');
           }
           if (session.step === 'payment') {
@@ -756,37 +873,56 @@ export default {
 
         const match = text.match(/^(?:\/gasto\s+)?(\d+(?:[.,]\d{1,2})?)\s+(.+)$/i);
 
-        if (!match) {
+        let pending = null;
+        let usedAI = false;
+
+        if (match) {
+          const monto = parseFloat(match[1].replace(',', '.'));
+          const rawDesc = match[2].trim();
+          const { who, cleanText } = detectMember(rawDesc, members);
+          const desc = cleanText.charAt(0).toUpperCase() + cleanText.slice(1);
+          pending = { name: desc, value: monto, who, belongsTo: '', commerce: '', paymentMethod: '', group: '' };
+        } else if (env.GROQ_API_KEY) {
+          // Fallback a IA para mensajes en lenguaje natural
+          const groupLabels = Object.values(BOT_EXPENSE_GROUPS).map(g => g.label)
+            .concat((profile?.customGroups || []).map(g => g.label));
+          const ai = await parseExpenseWithAI(text, members, groupLabels, env.GROQ_API_KEY);
+          if (ai) {
+            usedAI = true;
+            const whoField = Array.isArray(ai.who) ? ai.who.join(', ') : (ai.who || '');
+            pending = {
+              name: String(ai.name).trim(),
+              value: Number(ai.amount) || 0,
+              who: whoField,
+              belongsTo: ai.belongsTo || '',
+              commerce: ai.commerce || '',
+              paymentMethod: ai.paymentMethod || '',
+              group: resolveGroupKey(ai.group || '', profile)
+            };
+            if (Array.isArray(ai.who) && ai.who.length >= 2) {
+              pending._splitMembers = ai.who.filter(w => members.some(m => m.toLowerCase() === String(w).toLowerCase()));
+              if (pending._splitMembers.length < 2) delete pending._splitMembers;
+            }
+          }
+        }
+
+        if (!pending) {
           await sendMessage(env.BOT_TOKEN, chatId,
             '🌸 Mmm, no entendí del todo. Probá así:\n<code>[monto] [categoría] [quién]</code>\nEj: <code>850 super facu</code>\n\n📸 O mandame una foto del ticket y yo me encargo 💕'
           );
           return new Response('OK');
         }
 
-        const monto = parseFloat(match[1].replace(',', '.'));
-        const rawDesc = match[2].trim();
-        const { who, cleanText } = detectMember(rawDesc, members);
-        const desc = cleanText.charAt(0).toUpperCase() + cleanText.slice(1);
-
-        // Crear sesión pendiente en lugar de guardar directo.
-        // Así vamos pidiendo los datos que faltan para mejor calidad de info.
-        const pending = {
-          name: desc,
-          value: monto,
-          who: who,
-          belongsTo: '',
-          commerce: '',
-          paymentMethod: '',
-          group: ''
-        };
         profiles._sessions[sessionKey] = { expense: pending, step: 'who', month };
         await writeProfiles(env.FIREBASE_PROJECT, env.FIREBASE_USER_ID, token, profiles, activeId);
 
-        const whoOpts = members.join(', ');
+        const header = usedAI
+          ? `🤖 Entendí: $${Number(pending.value).toLocaleString('es-UY')} en "${pending.name}"`
+          : `📝 Gasto pendiente en ${month}\n💰 $${Number(pending.value).toLocaleString('es-UY')} en "${pending.name}"${pending.who ? ' · detectado: ' + pending.who : ''}`;
+
         await sendMessage(env.BOT_TOKEN, chatId,
-          `📝 Gasto pendiente en ${month}\n💰 $${monto.toLocaleString('es-UY')} en "${desc}"${who ? ' · detectado: ' + who : ''}\n\n` +
-          `👤 ¿Quién hizo el gasto? (${whoOpts})\n<i>💡 Para dividirlo entre varios: separalos por coma (ej: Facu, Lu)</i>\n` +
-          `<i>/skip para mantener lo detectado · /listo para guardar ya · /cancelar</i>`
+          `${header}\n\n👤 ¿Quién hizo el gasto?\n<i>💡 Tocá un botón o escribilo. Varios separados por coma = compartido.</i>`,
+          whoKeyboard(members)
         );
       }
 
