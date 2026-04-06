@@ -405,15 +405,18 @@ function initProfiles(userId) {
   currentUserId = userId;
   runMigrationIfNeeded(userId);
 
-  profiles = loadProfiles();
+  profiles = loadProfiles() || {};
 
-  if (!profiles || Object.keys(profiles).length === 0) {
+  // Filtrar claves internas (ej: _sessions escrito por el worker de Telegram)
+  const profileKeys = () => Object.keys(profiles).filter(k => !k.startsWith('_'));
+
+  if (profileKeys().length === 0) {
     const p = _buildDefaultProfile('familia', 'Familia');
-    profiles = { familia: p };
+    profiles.familia = p;
     activeId = 'familia';
   } else {
-    activeId = localStorage.getItem(_activeIdKey(userId)) || Object.keys(profiles)[0];
-    if (!profiles[activeId]) activeId = Object.keys(profiles)[0];
+    const stored = localStorage.getItem(_activeIdKey(userId));
+    activeId = (stored && profiles[stored] && !stored.startsWith('_')) ? stored : profileKeys()[0];
   }
 
   activateProfile(activeId, false);
@@ -494,11 +497,11 @@ function createProfile(name, templateType) {
 }
 
 function deleteActiveProfile() {
-  const keys = Object.keys(profiles);
+  const keys = Object.keys(profiles).filter(k => !k.startsWith('_'));
   if (keys.length <= 1) { showToast('No podés eliminar el único perfil'); return; }
   if (!confirm('¿Eliminar el perfil "' + state.name + '" y todos sus datos? Esta acción no se puede deshacer.')) return;
   delete profiles[activeId];
-  const nextId = Object.keys(profiles)[0];
+  const nextId = Object.keys(profiles).filter(k => !k.startsWith('_'))[0];
   activateProfile(nextId, true);
   historialOpen = false;
   renderAll();
@@ -534,7 +537,7 @@ function renderProfileSelector() {
   const fbUser = fbAuth.currentUser;
   const userDisplay = fbUser ? (fbUser.displayName || fbUser.email.split('@')[0] || '') : '';
 
-  const profileItems = Object.values(profiles).map(p => `
+  const profileItems = Object.keys(profiles).filter(k => !k.startsWith('_')).map(k => profiles[k]).map(p => `
     <button class="profile-menu-item${p.id === activeId ? ' active' : ''}"
             onclick="switchProfile(${JSON.stringify(p.id)})">
       <span style="width:20px;height:20px;border-radius:50%;background:var(--primary-light);
