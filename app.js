@@ -2491,13 +2491,16 @@ function openAddRowModal(type, editIndex) {
   let splitField = '';
   if (type === 'expense' && members.length >= 2) {
     const checks = members.map(m =>
-      `<label style="display:inline-flex;align-items:center;gap:0.3rem;padding:0.3rem 0.55rem;border:1px solid var(--border);border-radius:999px;font-size:0.82rem;cursor:pointer;">
+      `<label class="split-chip">
         <input type="checkbox" class="modal-split-chk" value="${esc(m)}" /> ${esc(m)}
       </label>`).join('');
     splitField = `
-      <label class="field-label">Dividir entre (compartido)</label>
-      <div id="modal-row-split" style="display:flex;flex-wrap:wrap;gap:0.4rem;">${checks}</div>
-      <p style="font-size:0.7rem;color:var(--text-soft);margin-top:0.3rem;">Marcá 2 o más para dividir el monto en partes iguales automáticamente.</p>
+      <div class="split-box">
+        <label class="field-label" style="margin-top:0;">🧮 Gasto compartido (dividir entre varios)</label>
+        <p style="font-size:0.75rem;color:var(--text-soft);margin:0 0 0.5rem;">Marcá <b>2 o más</b> personas para que la app cree una fila por cada una con su parte proporcional. Esto reemplaza al campo "Quién" de arriba.</p>
+        <div id="modal-row-split" style="display:flex;flex-wrap:wrap;gap:0.4rem;">${checks}</div>
+        <p id="modal-split-preview" style="font-size:0.78rem;color:var(--primary-dark);margin:0.5rem 0 0;font-weight:600;"></p>
+      </div>
     `;
   }
 
@@ -2525,12 +2528,12 @@ function openAddRowModal(type, editIndex) {
     <input type="text" id="modal-row-name" placeholder="Ej: Supermercado" />
     <label class="field-label" for="modal-row-value">Monto</label>
     <input type="number" id="modal-row-value" inputmode="decimal" placeholder="0" />
-    <label class="field-label" for="modal-row-who">Quién</label>
+    <label class="field-label" for="modal-row-who">Quién hizo el gasto</label>
     <select id="modal-row-who">${whoOpts}</select>
+    ${splitField}
     <label class="field-label" for="modal-row-belongs">Corresponde a</label>
     <select id="modal-row-belongs">${belongsOpts}</select>
     ${extraFields}
-    ${splitField}
     <p style="font-size:0.75rem;color:var(--text-soft);margin-top:0.6rem;">Solo el nombre es obligatorio. Completá el resto para tener mejor calidad de información.</p>
   `;
 
@@ -2603,6 +2606,29 @@ function openAddRowModal(type, editIndex) {
         if (g) g.value = existing.group || '';
       }
     }
+    // Live preview del split: al marcar checks o cambiar monto, muestra la parte por persona
+    const previewEl = document.getElementById('modal-split-preview');
+    const valInput = document.getElementById('modal-row-value');
+    const whoSelect = document.getElementById('modal-row-who');
+    const chks = document.querySelectorAll('.modal-split-chk');
+    function updateSplitPreview() {
+      if (!previewEl) return;
+      const checked = Array.from(chks).filter(c => c.checked).map(c => c.value);
+      const v = parseFloat(valInput?.value || '0') || 0;
+      if (checked.length >= 2 && v > 0) {
+        const share = Math.round((v / checked.length) * 100) / 100;
+        previewEl.textContent = `✔ Se crearán ${checked.length} filas (una por persona) · $${share.toLocaleString('es-UY')} c/u`;
+        if (whoSelect) { whoSelect.disabled = true; whoSelect.style.opacity = '0.5'; }
+      } else if (checked.length === 1) {
+        previewEl.textContent = `⚠ Marcá al menos 2 personas para dividir (o desmarcá para usar "Quién").`;
+        if (whoSelect) { whoSelect.disabled = false; whoSelect.style.opacity = '1'; }
+      } else {
+        previewEl.textContent = '';
+        if (whoSelect) { whoSelect.disabled = false; whoSelect.style.opacity = '1'; }
+      }
+    }
+    chks.forEach(c => c.addEventListener('change', updateSplitPreview));
+    if (valInput) valInput.addEventListener('input', updateSplitPreview);
   }, 50);
 }
 window.openAddRowModal = openAddRowModal;

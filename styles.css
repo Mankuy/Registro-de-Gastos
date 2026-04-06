@@ -919,6 +919,31 @@ tr:hover .btn-del { opacity: 1; }
   color: var(--text-soft);
   margin-bottom: 0.3rem;
 }
+.split-box {
+  border: 1px dashed var(--primary);
+  background: rgba(var(--primary-rgb, 150, 120, 255), 0.06);
+  border-radius: 10px;
+  padding: 0.65rem 0.75rem;
+  margin: 0.4rem 0 0.75rem;
+}
+.split-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 0.82rem;
+  cursor: pointer;
+  background: var(--bg);
+  transition: all 0.15s;
+}
+.split-chip:has(input:checked) {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: white;
+  font-weight: 600;
+}
 .form-row {
   display: grid;
   grid-template-columns: 1fr 1fr;

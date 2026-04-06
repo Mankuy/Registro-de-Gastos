@@ -690,24 +690,36 @@ export default {
                 session.expense.value = n;
               }
             }
-            session.step = 'belongs';
+            session.step = 'who';
             profiles._sessions[sessionKey] = session;
             await writeProfiles(env.FIREBASE_PROJECT, env.FIREBASE_USER_ID, token, profiles, activeId);
-            const belongsOpts = ['Hogar'].concat(members).join(', ');
-            await sendMessage(env.BOT_TOKEN, chatId, `✅ Monto: $${Number(session.expense.value).toLocaleString('es-UY')}\n\n👥 ¿Corresponde a? (${belongsOpts})\n<i>Para dividir el gasto: varios separados por coma (ej: Facu, Lu)</i>\n<i>/skip · /listo · /cancelar</i>`);
+            const whoOpts = members.join(', ');
+            await sendMessage(env.BOT_TOKEN, chatId, `✅ Monto: $${Number(session.expense.value).toLocaleString('es-UY')}\n\n👤 ¿Quién hizo el gasto? (${whoOpts})\n<i>💡 Para dividirlo entre varios: separalos por coma (ej: Facu, Lu)</i>\n<i>/skip · /listo · /cancelar</i>`);
             return new Response('OK');
           }
-          if (session.step === 'belongs') {
+          if (session.step === 'who') {
             if (!skip) {
               const multi = parseBelongsMembers(text, members);
               if (multi.multi.length >= 2) {
                 session.expense._splitMembers = multi.multi;
-                session.expense.belongsTo = multi.multi.join(', ');
+                session.expense.who = multi.multi.join(', ');
                 const shareNow = Math.round(((parseFloat(session.expense.value) || 0) / multi.multi.length) * 100) / 100;
                 await sendMessage(env.BOT_TOKEN, chatId, `🧮 Compartido entre ${multi.multi.join(', ')} — $${shareNow.toLocaleString('es-UY')} c/u`);
               } else {
-                session.expense.belongsTo = resolveBelongsTo(text, members);
+                const m = (members || []).find(mm => mm.toLowerCase() === text.toLowerCase());
+                session.expense.who = m || text.trim();
               }
+            }
+            session.step = 'belongs';
+            profiles._sessions[sessionKey] = session;
+            await writeProfiles(env.FIREBASE_PROJECT, env.FIREBASE_USER_ID, token, profiles, activeId);
+            const belongsOpts = ['Hogar'].concat(members).join(', ');
+            await sendMessage(env.BOT_TOKEN, chatId, `👥 ¿Corresponde a? (${belongsOpts})\n<i>/skip · /listo · /cancelar</i>`);
+            return new Response('OK');
+          }
+          if (session.step === 'belongs') {
+            if (!skip) {
+              session.expense.belongsTo = resolveBelongsTo(text, members);
             }
             session.step = 'group';
             profiles._sessions[sessionKey] = session;
@@ -767,14 +779,14 @@ export default {
           paymentMethod: '',
           group: ''
         };
-        profiles._sessions[sessionKey] = { expense: pending, step: 'belongs', month };
+        profiles._sessions[sessionKey] = { expense: pending, step: 'who', month };
         await writeProfiles(env.FIREBASE_PROJECT, env.FIREBASE_USER_ID, token, profiles, activeId);
 
-        const belongsOpts = ['Hogar'].concat(members).join(', ');
+        const whoOpts = members.join(', ');
         await sendMessage(env.BOT_TOKEN, chatId,
-          `📝 Gasto pendiente en ${month}\n💰 $${monto.toLocaleString('es-UY')} en "${desc}"${who ? ' · ' + who : ''}\n\n` +
-          `👥 ¿Corresponde a? (${belongsOpts})\n<i>Para dividir el gasto: varios separados por coma (ej: Facu, Lu)</i>\n` +
-          `<i>/skip para omitir · /listo para guardar ya · /cancelar</i>`
+          `📝 Gasto pendiente en ${month}\n💰 $${monto.toLocaleString('es-UY')} en "${desc}"${who ? ' · detectado: ' + who : ''}\n\n` +
+          `👤 ¿Quién hizo el gasto? (${whoOpts})\n<i>💡 Para dividirlo entre varios: separalos por coma (ej: Facu, Lu)</i>\n` +
+          `<i>/skip para mantener lo detectado · /listo para guardar ya · /cancelar</i>`
         );
       }
 
