@@ -2429,6 +2429,19 @@ function openAddRowModal(type, editIndex) {
   const belongsOpts = ['<option value="">(sin asignar)</option>', '<option value="Hogar">Hogar</option>']
     .concat(members.map(m => `<option value="${esc(m)}">${esc(m)}</option>`)).join('');
 
+  let splitField = '';
+  if (type === 'expense' && !isEdit && members.length >= 2) {
+    const checks = members.map(m =>
+      `<label style="display:inline-flex;align-items:center;gap:0.3rem;padding:0.3rem 0.55rem;border:1px solid var(--border);border-radius:999px;font-size:0.82rem;cursor:pointer;">
+        <input type="checkbox" class="modal-split-chk" value="${esc(m)}" /> ${esc(m)}
+      </label>`).join('');
+    splitField = `
+      <label class="field-label">Dividir entre (compartido)</label>
+      <div id="modal-row-split" style="display:flex;flex-wrap:wrap;gap:0.4rem;">${checks}</div>
+      <p style="font-size:0.7rem;color:var(--text-soft);margin-top:0.3rem;">Marcá 2 o más para dividir el monto en partes iguales automáticamente.</p>
+    `;
+  }
+
   let extraFields = '';
   if (type === 'expense') {
     const groups = getEffectiveGroups();
@@ -2458,6 +2471,7 @@ function openAddRowModal(type, editIndex) {
     <label class="field-label" for="modal-row-belongs">Corresponde a</label>
     <select id="modal-row-belongs">${belongsOpts}</select>
     ${extraFields}
+    ${splitField}
     <p style="font-size:0.75rem;color:var(--text-soft);margin-top:0.6rem;">Solo el nombre es obligatorio. Completá el resto para tener mejor calidad de información.</p>
   `;
 
@@ -2488,7 +2502,18 @@ function openAddRowModal(type, editIndex) {
       if (isEdit) {
         state.months[currentMonth][type][editIndex] = row;
       } else {
-        state.months[currentMonth][type].push(row);
+        const splitMembers = (type === 'expense')
+          ? Array.from(document.querySelectorAll('.modal-split-chk:checked')).map(i => i.value)
+          : [];
+        const numVal = parseFloat(value);
+        if (splitMembers.length >= 2 && !isNaN(numVal) && numVal > 0) {
+          const share = Math.round((numVal / splitMembers.length) * 100) / 100;
+          splitMembers.forEach(m => {
+            state.months[currentMonth][type].push({ ...row, who: m, value: String(share) });
+          });
+        } else {
+          state.months[currentMonth][type].push(row);
+        }
       }
       saveState();
       renderMain();

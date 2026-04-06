@@ -157,7 +157,7 @@ function resolveBelongsTo(text, members) {
 
 function finalizeMsg(expense, month) {
   const parts = [
-    `✅ ¡Gasto guardado en ${month}!`,
+    `💖 ¡Listo! Te lo anoté en ${month}`,
     `💰 $${Number(expense.value).toLocaleString('es-UY')} en "${expense.name}"`
   ];
   if (expense.who) parts.push(`👤 ${expense.who}`);
@@ -229,41 +229,145 @@ function detectMember(text, members) {
   return { who: members?.[0] || '', cleanText: text };
 }
 
-// ── Claude API: analizar imagen de ticket ────────────────
-async function analyzeImage(apiKey, imageBase64, mediaType, categories) {
-  const categoryHint = categories.length
-    ? `\nCategorías disponibles: ${categories.join(', ')}. Si corresponde, incluí "suggestedCategory" con el nombre exacto.`
-    : '';
+// ── OCR.space API: gratis e ilimitado ────────────────────
+async function ocrSpaceExtract(imageBase64, mediaType, apiKey) {
+  const form = new URLSearchParams();
+  form.append('base64Image', `data:${mediaType};base64,${imageBase64}`);
+  form.append('language', 'spa');
+  form.append('isTable', 'true');
+  form.append('OCREngine', '2');
+  form.append('scale', 'true');
 
-  const resp = await fetch('https://api.anthropic.com/v1/messages', {
+  const resp = await fetch('https://api.ocr.space/parse/image', {
     method: 'POST',
     headers: {
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'content-type': 'application/json'
+      'apikey': apiKey || 'helloworld',
+      'Content-Type': 'application/x-www-form-urlencoded'
     },
-    body: JSON.stringify({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 1024,
-      messages: [{
-        role: 'user',
-        content: [
-          { type: 'image', source: { type: 'base64', media_type: mediaType || 'image/jpeg', data: imageBase64 } },
-          {
-            type: 'text',
-            text: `Analizá este ticket/factura y extraé la información en JSON:
-{"total":<número sin símbolo>,"commerce":"<nombre>","date":"<YYYY-MM-DD>","paymentMethod":"<método en español>","details":"<productos separados por coma>","suggestedCategory":null}
-Si no podés determinar un campo, usá null. Respondé ÚNICAMENTE con JSON válido.${categoryHint}`
-          }
-        ]
-      }]
-    })
+    body: form.toString()
   });
-
-  if (!resp.ok) throw new Error('Claude API error: ' + resp.status);
+  if (!resp.ok) throw new Error('OCR error: ' + resp.status);
   const data = await resp.json();
-  const text = data.content[0].text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
-  return JSON.parse(text);
+  if (data.IsErroredOnProcessing) throw new Error('OCR: ' + (data.ErrorMessage || 'falló'));
+  return (data.ParsedResults?.[0]?.ParsedText || '').trim();
+}
+
+// ── Parsear texto del ticket localmente ──────────────────
+function parseTicketText(rawText) {
+  const text = rawText.replace(/\r/g, '');
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  const lower = text.toLowerCase();
+
+  // Total: buscar líneas con "total" y un número cercano
+  let total = null;
+  const totalRegex = /(total\s*(?:a\s*pagar)?|importe(?:\s*total)?|a\s*pagar)\s*[:\-$]*\s*\$?\s*([\d.,]+)/i;
+  for (const line of lines) {
+    const m = line.match(totalRegex);
+    if (m) {
+      const num = parseLocaleNumber(m[2]);
+      if (num != null) { total = num; break; }
+    }
+  }
+  // Fallback: número más grande del ticket
+  if (total == null) {
+    const nums = (text.match(/\d{1,3}(?:[.,]\d{3})+(?:[.,]\d{1,2})?|\d+[.,]\d{1,2}|\d{2,}/g) || [])
+      .map(parseLocaleNumber).filter(n => n != null);
+    if (nums.length) total = Math.max(...nums);
+  }
+
+  // Comercio: primera línea con letras
+  let commerce = '';
+  for (const line of lines.slice(0, 5)) {
+    if (/[a-záéíóúñ]/i.test(line) && line.length >= 3 && !/^r\.?u\.?t/i.test(line)) {
+      commerce = line.replace(/[^\wÁÉÍÓÚÑáéíóúñ &.\-]/g, '').trim();
+      if (commerce) break;
+    }
+  }
+
+  // Método de pago
+  let paymentMethod = '';
+  if (/cr[eé]dito/i.test(lower)) paymentMethod = 'Crédito';
+  else if (/d[eé]bito/i.test(lower)) paymentMethod = 'Débito';
+  else if (/efectivo|contado/i.test(lower)) paymentMethod = 'Efectivo';
+  else if (/transfer/i.test(lower)) paymentMethod = 'Transferencia';
+  else if (/mercado\s*pago|mp\b/i.test(lower)) paymentMethod = 'Mercado Pago';
+
+  // Fecha
+  let date = null;
+  const dm = text.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
+  if (dm) {
+    let [_, d, mo, y] = dm;
+    if (y.length === 2) y = '20' + y;
+    date = `${y}-${mo.padStart(2,'0')}-${d.padStart(2,'0')}`;
+  }
+
+  return { total, commerce, paymentMethod, date, details: '' };
+}
+
+function parseLocaleNumber(s) {
+  if (!s) return null;
+  s = String(s).trim();
+  // Si tiene coma y punto, asumimos formato es-UY: punto miles, coma decimal
+  if (s.includes(',') && s.includes('.')) {
+    s = s.replace(/\./g, '').replace(',', '.');
+  } else if (s.includes(',')) {
+    // coma como decimal si tiene 1-2 dígitos después
+    if (/,\d{1,2}$/.test(s)) s = s.replace(',', '.');
+    else s = s.replace(/,/g, '');
+  } else if ((s.match(/\./g) || []).length > 1) {
+    s = s.replace(/\./g, '');
+  } else if (/\.\d{3}$/.test(s)) {
+    // un solo punto con 3 dígitos: separador de miles
+    s = s.replace('.', '');
+  }
+  const n = parseFloat(s);
+  return isNaN(n) ? null : n;
+}
+
+async function analyzeImage(_unused, imageBase64, mediaType, categories, ocrKey) {
+  const text = await ocrSpaceExtract(imageBase64, mediaType, ocrKey);
+  if (!text) throw new Error('OCR vacío');
+  const parsed = parseTicketText(text);
+  // Sugerir categoría si el comercio o texto coincide con alguna existente
+  let suggestedCategory = null;
+  if (categories && categories.length) {
+    const lower = (text + ' ' + (parsed.commerce || '')).toLowerCase();
+    for (const c of categories) {
+      if (c && lower.includes(c.toLowerCase())) { suggestedCategory = c; break; }
+    }
+  }
+  return { ...parsed, suggestedCategory };
+}
+
+// ── Descargar archivo binario de Telegram ────────────────
+async function downloadTelegramFileBytes(botToken, fileId) {
+  const fileResp = await fetch(`https://api.telegram.org/bot${botToken}/getFile?file_id=${fileId}`);
+  const fileData = await fileResp.json();
+  if (!fileData.ok) throw new Error('No se pudo obtener el archivo');
+  const filePath = fileData.result.file_path;
+  const r = await fetch(`https://api.telegram.org/file/bot${botToken}/${filePath}`);
+  const buf = await r.arrayBuffer();
+  return { bytes: new Uint8Array(buf), filePath };
+}
+
+// ── Transcribir audio con Groq Whisper (gratis) ──────────
+async function transcribeAudio(bytes, mimeType, apiKey) {
+  const fd = new FormData();
+  fd.append('file', new Blob([bytes], { type: mimeType || 'audio/ogg' }), 'audio.ogg');
+  fd.append('model', 'whisper-large-v3-turbo');
+  fd.append('language', 'es');
+  fd.append('response_format', 'json');
+  const r = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${apiKey}` },
+    body: fd
+  });
+  if (!r.ok) {
+    const t = await r.text().catch(() => '');
+    throw new Error('Transcripción falló: ' + r.status + ' ' + t.slice(0, 120));
+  }
+  const j = await r.json();
+  return (j.text || '').trim();
 }
 
 // ── Descargar foto de Telegram ───────────────────────────
@@ -363,7 +467,7 @@ export default {
           await writeProfiles(env.FIREBASE_PROJECT, env.FIREBASE_USER_ID, token, profiles, activeId);
 
           await sendMessage(env.BOT_TOKEN, chatId,
-            `✅ ¡Ingreso anotado en ${month}!\n💚 $${monto.toLocaleString('es-UY')} en "${desc}"${who ? ' por ' + who + '.' : ''}`
+            `🌟 ¡Qué bueno! Te anoté el ingreso en ${month}\n💚 $${monto.toLocaleString('es-UY')} en "${desc}"${who ? ' por ' + who : ''} 💕`
           );
         } else {
           await sendMessage(env.BOT_TOKEN, chatId, '⚠️ Formato: <code>/ingreso [monto] [descripción] [@quién]</code>\nEj: <code>/ingreso 50000 Sueldo @facu</code>');
@@ -390,7 +494,7 @@ export default {
           await writeProfiles(env.FIREBASE_PROJECT, env.FIREBASE_USER_ID, token, profiles, activeId);
 
           await sendMessage(env.BOT_TOKEN, chatId,
-            `✅ ¡Ahorro registrado!\n💰 $${monto.toLocaleString('es-UY')} — "${rawDesc}"${who ? ' por ' + who : ''}`
+            `✨ ¡Genia! Anoté tu ahorro\n💰 $${monto.toLocaleString('es-UY')} — "${rawDesc}"${who ? ' por ' + who : ''} 🌷`
           );
         } else {
           await sendMessage(env.BOT_TOKEN, chatId, '⚠️ Formato: <code>/ahorro [monto] [descripción] [@quién]</code>\nEj: <code>/ahorro 5000 Ahorro mensual</code>');
@@ -400,31 +504,33 @@ export default {
 
       // ── Comando /help ──────────────────────────────────
       if (msg.text && ['/help', '/start', '/ayuda'].includes(msg.text.trim())) {
+        const builtinList = Object.values(BOT_EXPENSE_GROUPS).map(g => `   ${g.emoji} ${g.label}`).join('\n');
+        const customList = (profile?.customGroups || []).map(g => `   ${g.emoji || '🏷️'} ${g.label}`).join('\n');
+        const allCats = customList ? builtinList + '\n' + customList : builtinList;
+        const membersTxt = members.length ? members.join(', ') : 'tu familia';
+
         await sendMessage(env.BOT_TOKEN, chatId,
-          '🏠 <b>Gestor del Hogar — Bot</b>\n\n' +
-          '<b>Gastos:</b>\n' +
-          '<code>500 supermercado facu</code>\n' +
-          '<code>/gasto 350 verduleria @facu</code>\n\n' +
-          '<b>Ingresos:</b>\n' +
-          '<code>/ingreso 50000 Sueldo @facu</code>\n\n' +
-          '<b>Ahorro:</b>\n' +
-          '<code>/ahorro 5000 Ahorro mensual</code>\n\n' +
-          '📸 <b>Foto:</b> Enviá una foto de un ticket\n\n' +
-          '<b>Consultas:</b>\n' +
-          '/saldo — Balance del mes\n' +
-          '/ayuda — Este mensaje'
+          `¡Holaa! 💕 Soy tu asistente del hogar, acá para ayudarte a llevar las cuentas tranqui.\n\n` +
+          `🗂️ <b>Estas son tus categorías:</b>\n${allCats}\n\n` +
+          `👨‍👩‍👧 <b>Miembros:</b> ${membersTxt}\n\n` +
+          `✨ <b>Para anotar un gasto, escribime así:</b>\n` +
+          `<code>[monto] [categoría] [quién]</code>\n` +
+          `Ej: <code>850 super facu</code>\n\n` +
+          `📸 O mandame una foto del ticket y yo lo leo por vos 💖\n` +
+          `🎤 También podés mandarme una nota de voz y la transcribo 💕\n\n` +
+          `<b>Otros comanditos:</b>\n` +
+          `💚 <code>/ingreso 50000 Sueldo @facu</code>\n` +
+          `💰 <code>/ahorro 5000 Ahorro mensual</code>\n` +
+          `📊 /saldo — te muestro el balance del mes\n` +
+          `🤍 /ayuda — esta ayudita\n\n` +
+          `Cualquier cosa, acá estoy 🌷`
         );
         return new Response('OK');
       }
 
       // ── Foto: OCR con Claude ───────────────────────────
       if (msg.photo && msg.photo.length > 0) {
-        if (!env.CLAUDE_API_KEY) {
-          await sendMessage(env.BOT_TOKEN, chatId, '❌ OCR no configurado. Falta CLAUDE_API_KEY.');
-          return new Response('OK');
-        }
-
-        await sendMessage(env.BOT_TOKEN, chatId, '🔍 Analizando ticket...');
+        await sendMessage(env.BOT_TOKEN, chatId, '🔍 Dejame ver tu ticket, dame un segundito...');
 
         // Tomar la foto de mayor resolución
         const photo = msg.photo[msg.photo.length - 1];
@@ -433,10 +539,10 @@ export default {
         // Obtener categorías existentes para sugerencias
         const categories = profile?.months?.[month]?.expense?.map(r => r.name) || [];
 
-        const extracted = await analyzeImage(env.CLAUDE_API_KEY, base64, mediaType, categories);
+        const extracted = await analyzeImage(null, base64, mediaType, categories, env.OCR_API_KEY || 'K89209721888957');
 
         if (!extracted || !extracted.total) {
-          await sendMessage(env.BOT_TOKEN, chatId, '❌ No pude leer el ticket. Intentá con mejor iluminación o escribí el gasto manualmente.');
+          await sendMessage(env.BOT_TOKEN, chatId, '😕 Ay, no logré leer bien el ticket. ¿Probás con una foto más clarita o me lo escribís a mano? ¡Gracias, amor!');
           return new Response('OK');
         }
 
@@ -459,17 +565,35 @@ export default {
 
         // Iniciar flujo para completar grupo y corresponde a.
         profiles._sessions = profiles._sessions || {};
-        profiles._sessions[String(chatId)] = { expense, step: 'belongs', month };
+        profiles._sessions[String(chatId)] = { expense, step: 'confirm', month };
         await writeProfiles(env.FIREBASE_PROJECT, env.FIREBASE_USER_ID, token, profiles, activeId);
 
         const details = extracted.details ? `\n📝 ${extracted.details}` : '';
-        const belongsOpts = ['Hogar'].concat(members).join(', ');
         await sendMessage(env.BOT_TOKEN, chatId,
-          `🧾 Ticket leído (${month})\n💰 $${Number(extracted.total).toLocaleString('es-UY')} en "${expense.name}"${expense.commerce ? ' · ' + expense.commerce : ''}${expense.paymentMethod ? ' · ' + expense.paymentMethod : ''}${who ? ' · ' + who : ''}${details}\n\n` +
-          `👥 ¿Corresponde a? (${belongsOpts})\n` +
-          `<i>/skip · /listo · /cancelar</i>`
+          `🧾 Ticket leído (${month})\n💰 Detecté <b>$${Number(extracted.total).toLocaleString('es-UY')}</b> en "${expense.name}"${expense.commerce ? ' · ' + expense.commerce : ''}${expense.paymentMethod ? ' · ' + expense.paymentMethod : ''}${who ? ' · ' + who : ''}${details}\n\n` +
+          `❓ ¿El monto es correcto? Respondé <code>/si</code> para confirmar, o escribime el monto correcto (ej: <code>2580</code>).\n` +
+          `<i>/cancelar para descartar</i>`
         );
         return new Response('OK');
+      }
+
+      // ── Audio / nota de voz: transcribir y reusar flujo de texto ─
+      if (msg.voice || msg.audio) {
+        if (!env.GROQ_API_KEY) {
+          await sendMessage(env.BOT_TOKEN, chatId, '🎤 Para usar audios necesito una <code>GROQ_API_KEY</code> (gratis en groq.com). Pedile a Facu que la configure en el worker.');
+          return new Response('OK');
+        }
+        await sendMessage(env.BOT_TOKEN, chatId, '🎤 Escuchando tu mensajito, dame un segundo...');
+        const audioObj = msg.voice || msg.audio;
+        const { bytes } = await downloadTelegramFileBytes(env.BOT_TOKEN, audioObj.file_id);
+        const transcript = await transcribeAudio(bytes, audioObj.mime_type, env.GROQ_API_KEY);
+        if (!transcript) {
+          await sendMessage(env.BOT_TOKEN, chatId, '😕 No te entendí del todo, ¿probás de nuevo más cerquita?');
+          return new Response('OK');
+        }
+        await sendMessage(env.BOT_TOKEN, chatId, `🎤 Te escuché: <i>${transcript}</i>`);
+        msg.text = transcript;
+        // Cae al handler de texto debajo
       }
 
       // ── Texto: gasto manual ────────────────────────────
@@ -500,6 +624,22 @@ export default {
             return new Response('OK');
           }
 
+          if (session.step === 'confirm') {
+            const yes = ['/si', '/sí', 'si', 'sí', 'ok', 'dale', 'correcto'].includes(lower);
+            if (!yes && !skip) {
+              const cleaned = text.replace(/[^\d.,\-]/g, '').replace(/\.(?=\d{3}(\D|$))/g, '').replace(',', '.');
+              const n = parseFloat(cleaned);
+              if (!isNaN(n) && n > 0) {
+                session.expense.value = n;
+              }
+            }
+            session.step = 'belongs';
+            profiles._sessions[sessionKey] = session;
+            await writeProfiles(env.FIREBASE_PROJECT, env.FIREBASE_USER_ID, token, profiles, activeId);
+            const belongsOpts = ['Hogar'].concat(members).join(', ');
+            await sendMessage(env.BOT_TOKEN, chatId, `✅ Monto: $${Number(session.expense.value).toLocaleString('es-UY')}\n\n👥 ¿Corresponde a? (${belongsOpts})\n<i>/skip · /listo · /cancelar</i>`);
+            return new Response('OK');
+          }
           if (session.step === 'belongs') {
             if (!skip) session.expense.belongsTo = resolveBelongsTo(text, members);
             session.step = 'group';
@@ -538,7 +678,7 @@ export default {
 
         if (!match) {
           await sendMessage(env.BOT_TOKEN, chatId,
-            '⚠️ Formato: <code>[monto] [categoría] [quién]</code>\nEj: <code>850 super facu</code>\n\n📸 También podés enviar una foto de un ticket.'
+            '🌸 Mmm, no entendí del todo. Probá así:\n<code>[monto] [categoría] [quién]</code>\nEj: <code>850 super facu</code>\n\n📸 O mandame una foto del ticket y yo me encargo 💕'
           );
           return new Response('OK');
         }
