@@ -150,14 +150,20 @@ function groupsListText(profile) {
   return builtin.concat(custom).join(', ');
 }
 
+function matchMember(name, members) {
+  if (!name) return null;
+  const n = String(name).toLowerCase().trim();
+  let best = (members || []).find(m => m.toLowerCase() === n);
+  if (best) return best;
+  best = (members || []).find(m => m.toLowerCase().startsWith(n) || n.startsWith(m.toLowerCase()));
+  return best || null;
+}
+
 function parseBelongsMembers(text, members) {
   if (!text) return { single: '', multi: [] };
   const parts = text.split(/\s*(?:,|\+|&|\/|\sy\s)\s*/i).map(p => p.trim()).filter(Boolean);
   if (parts.length >= 2) {
-    const matched = parts.map(p => {
-      const m = (members || []).find(mm => mm.toLowerCase() === p.toLowerCase());
-      return m || null;
-    }).filter(Boolean);
+    const matched = parts.map(p => matchMember(p, members)).filter(Boolean);
     if (matched.length >= 2) return { single: '', multi: matched };
   }
   return { single: '', multi: [] };
@@ -538,7 +544,7 @@ Extraé del mensaje libre un JSON con estos campos:
 Reglas:
 - "amount" en pesos uruguayos (solo número, sin símbolo).
 - "name" descripción corta del gasto (ej: "Supermercado", "UTE", "Nafta").
-- "who" quien hizo el gasto. Puede ser un string (uno) o un array (si fue compartido entre varios). Miembros válidos: ${members.join(', ') || '(ninguno)'}.
+- "who" quien hizo el gasto. Puede ser un string (uno) o un array (si fue compartido entre varios). Miembros válidos: ${members.join(', ') || '(ninguno)'}. Mapeá apodos/diminutivos/variantes al nombre exacto del miembro (ej: "facundo"→"Facu", "lucía"→"Lu", "facu y lu"→["Facu","Lu"]). Si el mensaje dice "compartido", "entre", "y", "con" con 2+ nombres, devolvelo como array.
 - "belongsTo" puede ser "Hogar" o uno de los miembros.
 - "group" debe ser uno de: ${groupLabels.join(', ')}.
 - "commerce" nombre del comercio si lo menciona.
@@ -579,11 +585,13 @@ export default {
     try {
       const payload = await request.json();
       let msg = payload.message;
+      let isCallback = false;
       // Si es un tap en un botón inline, lo transformamos en un mensaje de texto
       if (!msg && payload.callback_query) {
         const cq = payload.callback_query;
         await answerCallback(env.BOT_TOKEN, cq.id);
         msg = { chat: cq.message.chat, text: cq.data };
+        isCallback = true;
       }
       if (!msg) return new Response('OK');
 
@@ -889,24 +897,31 @@ export default {
           const ai = await parseExpenseWithAI(text, members, groupLabels, env.GROQ_API_KEY);
           if (ai) {
             usedAI = true;
-            const whoField = Array.isArray(ai.who) ? ai.who.join(', ') : (ai.who || '');
+            // Normalizar who con fuzzy match contra miembros reales
+            const rawWho = Array.isArray(ai.who) ? ai.who : (ai.who ? [ai.who] : []);
+            const matchedWho = rawWho.map(w => matchMember(w, members)).filter(Boolean);
+            const whoField = matchedWho.join(', ');
             pending = {
               name: String(ai.name).trim(),
               value: Number(ai.amount) || 0,
-              who: whoField,
-              belongsTo: ai.belongsTo || '',
+              who: whoField || (matchedWho[0] || ''),
+              belongsTo: matchMember(ai.belongsTo, members) || (String(ai.belongsTo).toLowerCase() === 'hogar' ? 'Hogar' : ''),
               commerce: ai.commerce || '',
               paymentMethod: ai.paymentMethod || '',
               group: resolveGroupKey(ai.group || '', profile)
             };
-            if (Array.isArray(ai.who) && ai.who.length >= 2) {
-              pending._splitMembers = ai.who.filter(w => members.some(m => m.toLowerCase() === String(w).toLowerCase()));
-              if (pending._splitMembers.length < 2) delete pending._splitMembers;
+            if (matchedWho.length >= 2) {
+              pending._splitMembers = matchedWho;
             }
           }
         }
 
         if (!pending) {
+          // Si viene de un tap en un botón viejo (sin sesión activa), ignorar silenciosamente
+          if (isCallback) {
+            await sendMessage(env.BOT_TOKEN, chatId, '✅ Esa carga ya terminó. Mandame otro gasto cuando quieras 💕');
+            return new Response('OK');
+          }
           await sendMessage(env.BOT_TOKEN, chatId,
             '🌸 Mmm, no entendí del todo. Probá así:\n<code>[monto] [categoría] [quién]</code>\nEj: <code>850 super facu</code>\n\n📸 O mandame una foto del ticket y yo me encargo 💕'
           );
