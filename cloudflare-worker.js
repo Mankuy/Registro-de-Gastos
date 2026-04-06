@@ -567,21 +567,23 @@ async function answerCallback(botToken, callbackId) {
 }
 
 // ── Parsear gasto con IA (Groq, gratis) ─────────────────
-async function parseExpenseWithAI(text, members, groupLabels, apiKey) {
+async function parseExpenseWithAI(text, peopleCtx, groupLabels, apiKey) {
   if (!apiKey) return null;
+  const contribsList = (peopleCtx?.contributors || []).join(', ') || '(ninguno)';
+  const membersList = (peopleCtx?.members || []).join(', ') || '(ninguno)';
   const sys = `Sos un parser de gastos familiares en español uruguayo.
 Extraé del mensaje libre un JSON con estos campos:
-{"amount": number, "name": string, "who": string|string[], "belongsTo": string, "group": string, "commerce": string, "paymentMethod": string}
+{"amount": number, "name": string, "who": string[], "belongsTo": string, "group": string, "commerce": string, "paymentMethod": string}
 
 Reglas:
 - "amount" en pesos uruguayos (solo número, sin símbolo).
-- "name" descripción corta del gasto (ej: "Supermercado", "UTE", "Nafta").
-- "who" quien hizo el gasto. Puede ser un string (uno) o un array (si fue compartido entre varios). Miembros válidos: ${members.join(', ') || '(ninguno)'}. Mapeá apodos/diminutivos/variantes al nombre exacto del miembro (ej: "facundo"→"Facu", "lucía"→"Lu", "facu y lu"→["Facu","Lu"]). Si el mensaje dice "compartido", "entre", "y", "con" con 2+ nombres, devolvelo como array.
-- "belongsTo" puede ser "Hogar" o uno de los miembros.
+- "name" descripción corta del gasto (ej: "Supermercado", "UTE", "Nafta"). NO incluyas en el nombre palabras como "pagamos", "pagué", "compré", "corresponde a", etc., ni los nombres de personas.
+- "who" SIEMPRE un array de strings con los adultos que pagaron. Valores válidos: ${contribsList}. Mapeá apodos/diminutivos (ej: "facundo"→"Facu"). Si el mensaje dice "pagamos lu y facu", "entre X y Y", "compartido con Z" devolvé TODOS los nombres en el array. Si dice "pagué" sin decir quién, dejá array vacío.
+- "belongsTo" puede ser "Hogar" o uno de: ${membersList}. Si dice "para la casa", "del hogar", "corresponde a hogar" → "Hogar".
 - "group" debe ser uno de: ${groupLabels.join(', ')}.
-- "commerce" nombre del comercio si lo menciona.
+- "commerce" nombre del comercio si lo menciona explícitamente.
 - "paymentMethod" uno de: Efectivo, Débito, Crédito, Transferencia, Mercado Pago.
-- Si un campo no aparece en el mensaje, devolvelo como string vacío "" (o 0 si es amount).
+- Si un campo no aparece en el mensaje, devolvelo vacío ("" o [] según corresponda; 0 si es amount).
 - Respondé SOLO con el JSON, sin texto adicional, sin markdown.`;
   try {
     const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -648,6 +650,7 @@ export default {
       const activeId = env.ACTIVE_PROFILE || result.activeId || 'familia';
       const profile = profiles[activeId];
       const members = profile?.members || [];
+      const contributors = (profile?.contributors && profile.contributors.length) ? profile.contributors : members;
       const month = getCurrentMonth();
 
       // ── Comando /saldo ─────────────────────────────────
@@ -866,7 +869,7 @@ export default {
               session.step = 'who'; session.returnToReview = true;
               profiles._sessions[sessionKey] = session;
               await writeProfiles(env.FIREBASE_PROJECT, env.FIREBASE_USER_ID, token, profiles, activeId);
-              await sendMessage(env.BOT_TOKEN, chatId, `👤 ¿Quién hizo el gasto?\n<i>💡 Varios separados por coma = compartido.</i>`, whoKeyboard(members));
+              await sendMessage(env.BOT_TOKEN, chatId, `👤 ¿Quién hizo el gasto?\n<i>💡 Varios separados por coma = compartido.</i>`, whoKeyboard(contributors));
               return new Response('OK');
             }
             if (text === '__edit_belongs') {
@@ -904,13 +907,13 @@ export default {
 
           if (session.step === 'who') {
             if (!skip) {
-              const multi = parseBelongsMembers(text, members);
+              const multi = parseBelongsMembers(text, contributors);
               if (multi.multi.length >= 2) {
                 session.expense._splitMembers = multi.multi;
                 session.expense.who = multi.multi.join(', ');
               } else {
                 delete session.expense._splitMembers;
-                const m = matchMember(text, members);
+                const m = matchMember(text, contributors);
                 session.expense.who = m || text.trim();
               }
             }
@@ -964,11 +967,12 @@ export default {
         if (env.GROQ_API_KEY) {
           const groupLabels = Object.values(BOT_EXPENSE_GROUPS).map(g => g.label)
             .concat((profile?.customGroups || []).map(g => g.label));
-          const ai = await parseExpenseWithAI(text, members, groupLabels, env.GROQ_API_KEY);
+          const ai = await parseExpenseWithAI(text, { contributors, members }, groupLabels, env.GROQ_API_KEY);
           if (ai) {
             usedAI = true;
-            const rawWho = Array.isArray(ai.who) ? ai.who : (ai.who ? [ai.who] : []);
-            const matchedWho = rawWho.map(w => matchMember(w, members)).filter(Boolean);
+            let rawWho = Array.isArray(ai.who) ? ai.who : (ai.who ? [ai.who] : []);
+            rawWho = rawWho.flatMap(w => String(w).split(/\s*(?:,|;|\/|\+|\s+y\s+|\s+e\s+)\s*/i)).filter(Boolean);
+            const matchedWho = [...new Set(rawWho.map(w => matchMember(w, contributors)).filter(Boolean))];
             const whoField = matchedWho.join(', ');
             pending = {
               name: String(ai.name).trim(),

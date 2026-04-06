@@ -981,17 +981,39 @@ function renderMembersDrawer() {
     ul.innerHTML = '<li style="color:var(--text-soft);font-size:0.85rem;padding:0.5rem 0;">No hay miembros registrados.</li>';
     return;
   }
-  ul.innerHTML = state.members.map((m, i) => `
+  const contribs = state.contributors || state.members.slice();
+  ul.innerHTML = state.members.map((m, i) => {
+    const isContrib = contribs.includes(m);
+    return `
     <li class="member-item" data-index="${i}">
       <div class="member-avatar">${esc(m.charAt(0))}</div>
       <span class="member-name" id="member-name-${i}">${esc(m)}</span>
+      <label class="member-contrib-toggle" title="¿Aporta al hogar? (puede hacer gastos)" style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.72rem;color:var(--text-soft);margin-right:0.4rem;cursor:pointer;">
+        <input type="checkbox" ${isContrib ? 'checked' : ''} data-action="toggle-contrib" data-name="${esc(m)}" />
+        💰 Aporta
+      </label>
       <button class="btn-member-edit" data-action="edit-member" data-index="${i}" title="Renombrar">✏️</button>
       <button class="btn-member-del"  data-action="del-member"  data-name="${esc(m)}"  title="Eliminar">🗑️</button>
     </li>
-  `).join('');
+  `;
+  }).join('');
 }
 
+function toggleContributor(name) {
+  if (!state.contributors) state.contributors = state.members.slice();
+  if (state.contributors.includes(name)) {
+    state.contributors = state.contributors.filter(n => n !== name);
+  } else {
+    state.contributors.push(name);
+  }
+  saveState();
+  renderMembersDrawer();
+}
+window.toggleContributor = toggleContributor;
+
 function _handleMemberListClick(e) {
+  const chk = e.target.closest('input[data-action="toggle-contrib"]');
+  if (chk) { toggleContributor(chk.dataset.name); return; }
   const btn = e.target.closest('button[data-action]');
   if (!btn) return;
   const action = btn.dataset.action;
@@ -1500,7 +1522,8 @@ function esc(str) {
 }
 
 function renderMembersOptions(selectedWho) {
-  const opts = state.members.map(m =>
+  const contribs = state.contributors || state.members;
+  const opts = contribs.map(m =>
     `<option value="${esc(m)}"${m === selectedWho ? ' selected' : ''}>${esc(m)}</option>`
   ).join('');
   return `<option value=""${!selectedWho ? ' selected' : ''}>Sin asignar</option>${opts}`;
@@ -2483,14 +2506,15 @@ function openAddRowModal(type, editIndex) {
   if (isEdit && !existing) { showToast('Fila no encontrada'); return; }
   const typeLabel = type === 'income' ? 'ingreso' : 'egreso';
   const members = state.members || [];
+  const contributors = (state.contributors && state.contributors.length) ? state.contributors : members;
   const whoOpts = ['<option value="">(sin asignar)</option>']
-    .concat(members.map(m => `<option value="${esc(m)}">${esc(m)}</option>`)).join('');
+    .concat(contributors.map(m => `<option value="${esc(m)}">${esc(m)}</option>`)).join('');
   const belongsOpts = ['<option value="">(sin asignar)</option>', '<option value="Hogar">Hogar</option>']
     .concat(members.map(m => `<option value="${esc(m)}">${esc(m)}</option>`)).join('');
 
   let splitField = '';
-  if (type === 'expense' && members.length >= 2) {
-    const checks = members.map(m =>
+  if (type === 'expense' && contributors.length >= 2) {
+    const checks = contributors.map(m =>
       `<label class="split-chip">
         <input type="checkbox" class="modal-split-chk" value="${esc(m)}" /> ${esc(m)}
       </label>`).join('');
