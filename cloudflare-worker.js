@@ -524,6 +524,38 @@ function stepControlsKeyboard() {
   return kb([[['⏭️ Skip', '/skip'], ['✅ Listo', '/listo'], ['❌ Cancelar', '/cancelar']]]);
 }
 
+function reviewKeyboard() {
+  return kb([
+    [['✅ Guardar así', '/listo']],
+    [['✏️ Quién', '__edit_who'], ['✏️ Corresponde a', '__edit_belongs']],
+    [['✏️ Grupo', '__edit_group'], ['✏️ Comercio', '__edit_commerce']],
+    [['✏️ Medio de pago', '__edit_payment']],
+    [['❌ Cancelar', '/cancelar']]
+  ]);
+}
+
+function reviewSummary(expense) {
+  const lines = [`🤖 Listo, entendí esto:`, ''];
+  lines.push(`💰 <b>$${Number(expense.value || 0).toLocaleString('es-UY')}</b> en "${expense.name}"`);
+  if (expense._splitMembers && expense._splitMembers.length >= 2) {
+    const share = Math.round(((parseFloat(expense.value) || 0) / expense._splitMembers.length) * 100) / 100;
+    lines.push(`👤 Compartido entre ${expense._splitMembers.join(', ')} ($${share.toLocaleString('es-UY')} c/u)`);
+  } else if (expense.who) {
+    lines.push(`👤 ${expense.who}`);
+  } else {
+    lines.push(`👤 <i>(sin asignar)</i>`);
+  }
+  lines.push(`👥 Corresponde a: ${expense.belongsTo || '<i>(sin asignar)</i>'}`);
+  const groupLabel = expense.group && BOT_EXPENSE_GROUPS[expense.group]
+    ? `${BOT_EXPENSE_GROUPS[expense.group].emoji} ${BOT_EXPENSE_GROUPS[expense.group].label}`
+    : (expense.group || '<i>(sin grupo)</i>');
+  lines.push(`🏷️ ${groupLabel}`);
+  lines.push(`🏪 ${expense.commerce || '<i>(sin comercio)</i>'}`);
+  lines.push(`💳 ${expense.paymentMethod || '<i>(sin medio de pago)</i>'}`);
+  lines.push('', '¿Guardar así o querés editar algo?');
+  return lines.join('\n');
+}
+
 async function answerCallback(botToken, callbackId) {
   try {
     await fetch(`https://api.telegram.org/bot${botToken}/answerCallbackQuery`, {
@@ -806,6 +838,15 @@ export default {
             return new Response('OK');
           }
 
+          // Helper local para persistir y avanzar: si returnToReview, vuelve al resumen
+          const gotoReview = async () => {
+            session.step = 'review';
+            session.returnToReview = false;
+            profiles._sessions[sessionKey] = session;
+            await writeProfiles(env.FIREBASE_PROJECT, env.FIREBASE_USER_ID, token, profiles, activeId);
+            await sendMessage(env.BOT_TOKEN, chatId, reviewSummary(session.expense), reviewKeyboard());
+          };
+
           if (session.step === 'confirm') {
             const yes = ['/si', '/sí', 'si', 'sí', 'ok', 'dale', 'correcto'].includes(lower);
             if (!yes && !skip) {
@@ -815,27 +856,65 @@ export default {
                 session.expense.value = n;
               }
             }
-            session.step = 'who';
-            profiles._sessions[sessionKey] = session;
-            await writeProfiles(env.FIREBASE_PROJECT, env.FIREBASE_USER_ID, token, profiles, activeId);
-            await sendMessage(env.BOT_TOKEN, chatId,
-              `✅ Monto: $${Number(session.expense.value).toLocaleString('es-UY')}\n\n👤 ¿Quién hizo el gasto?\n<i>💡 Tocá un botón o escribilo. Varios separados por coma = compartido.</i>`,
-              whoKeyboard(members));
+            await gotoReview();
             return new Response('OK');
           }
+
+          if (session.step === 'review') {
+            // Taps para editar campos individuales
+            if (text === '__edit_who') {
+              session.step = 'who'; session.returnToReview = true;
+              profiles._sessions[sessionKey] = session;
+              await writeProfiles(env.FIREBASE_PROJECT, env.FIREBASE_USER_ID, token, profiles, activeId);
+              await sendMessage(env.BOT_TOKEN, chatId, `👤 ¿Quién hizo el gasto?\n<i>💡 Varios separados por coma = compartido.</i>`, whoKeyboard(members));
+              return new Response('OK');
+            }
+            if (text === '__edit_belongs') {
+              session.step = 'belongs'; session.returnToReview = true;
+              profiles._sessions[sessionKey] = session;
+              await writeProfiles(env.FIREBASE_PROJECT, env.FIREBASE_USER_ID, token, profiles, activeId);
+              await sendMessage(env.BOT_TOKEN, chatId, `👥 ¿Corresponde a?`, belongsKeyboard(members));
+              return new Response('OK');
+            }
+            if (text === '__edit_group') {
+              session.step = 'group'; session.returnToReview = true;
+              profiles._sessions[sessionKey] = session;
+              await writeProfiles(env.FIREBASE_PROJECT, env.FIREBASE_USER_ID, token, profiles, activeId);
+              await sendMessage(env.BOT_TOKEN, chatId, `🏷️ ¿Grupo?`, groupKeyboard(profile));
+              return new Response('OK');
+            }
+            if (text === '__edit_commerce') {
+              session.step = 'commerce'; session.returnToReview = true;
+              profiles._sessions[sessionKey] = session;
+              await writeProfiles(env.FIREBASE_PROJECT, env.FIREBASE_USER_ID, token, profiles, activeId);
+              await sendMessage(env.BOT_TOKEN, chatId, '🏪 ¿Comercio? (escribilo)', stepControlsKeyboard());
+              return new Response('OK');
+            }
+            if (text === '__edit_payment') {
+              session.step = 'payment'; session.returnToReview = true;
+              profiles._sessions[sessionKey] = session;
+              await writeProfiles(env.FIREBASE_PROJECT, env.FIREBASE_USER_ID, token, profiles, activeId);
+              await sendMessage(env.BOT_TOKEN, chatId, '💳 ¿Medio de pago?', paymentKeyboard());
+              return new Response('OK');
+            }
+            // Cualquier otro texto en review: reenviar el resumen
+            await sendMessage(env.BOT_TOKEN, chatId, reviewSummary(session.expense), reviewKeyboard());
+            return new Response('OK');
+          }
+
           if (session.step === 'who') {
             if (!skip) {
               const multi = parseBelongsMembers(text, members);
               if (multi.multi.length >= 2) {
                 session.expense._splitMembers = multi.multi;
                 session.expense.who = multi.multi.join(', ');
-                const shareNow = Math.round(((parseFloat(session.expense.value) || 0) / multi.multi.length) * 100) / 100;
-                await sendMessage(env.BOT_TOKEN, chatId, `🧮 Compartido entre ${multi.multi.join(', ')} — $${shareNow.toLocaleString('es-UY')} c/u`);
               } else {
-                const m = (members || []).find(mm => mm.toLowerCase() === text.toLowerCase());
+                delete session.expense._splitMembers;
+                const m = matchMember(text, members);
                 session.expense.who = m || text.trim();
               }
             }
+            if (session.returnToReview) { await gotoReview(); return new Response('OK'); }
             session.step = 'belongs';
             profiles._sessions[sessionKey] = session;
             await writeProfiles(env.FIREBASE_PROJECT, env.FIREBASE_USER_ID, token, profiles, activeId);
@@ -843,9 +922,8 @@ export default {
             return new Response('OK');
           }
           if (session.step === 'belongs') {
-            if (!skip) {
-              session.expense.belongsTo = resolveBelongsTo(text, members);
-            }
+            if (!skip) session.expense.belongsTo = resolveBelongsTo(text, members);
+            if (session.returnToReview) { await gotoReview(); return new Response('OK'); }
             session.step = 'group';
             profiles._sessions[sessionKey] = session;
             await writeProfiles(env.FIREBASE_PROJECT, env.FIREBASE_USER_ID, token, profiles, activeId);
@@ -854,6 +932,7 @@ export default {
           }
           if (session.step === 'group') {
             if (!skip) session.expense.group = resolveGroupKey(text, profile);
+            if (session.returnToReview) { await gotoReview(); return new Response('OK'); }
             session.step = 'commerce';
             profiles._sessions[sessionKey] = session;
             await writeProfiles(env.FIREBASE_PROJECT, env.FIREBASE_USER_ID, token, profiles, activeId);
@@ -862,6 +941,7 @@ export default {
           }
           if (session.step === 'commerce') {
             if (!skip) session.expense.commerce = text;
+            if (session.returnToReview) { await gotoReview(); return new Response('OK'); }
             session.step = 'payment';
             profiles._sessions[sessionKey] = session;
             await writeProfiles(env.FIREBASE_PROJECT, env.FIREBASE_USER_ID, token, profiles, activeId);
@@ -870,11 +950,9 @@ export default {
           }
           if (session.step === 'payment') {
             if (!skip) session.expense.paymentMethod = text;
-            const msgText = finalizeMsg(session.expense, session.month || month);
-            finalizeExpense(profiles, activeId, session.month || month, session.expense);
-            delete profiles._sessions[sessionKey];
-            await writeProfiles(env.FIREBASE_PROJECT, env.FIREBASE_USER_ID, token, profiles, activeId);
-            await sendMessage(env.BOT_TOKEN, chatId, msgText);
+            if (session.returnToReview) { await gotoReview(); return new Response('OK'); }
+            // Si venimos del flujo secuencial, ir al review en vez de guardar directo
+            await gotoReview();
             return new Response('OK');
           }
         }
@@ -928,17 +1006,10 @@ export default {
           return new Response('OK');
         }
 
-        profiles._sessions[sessionKey] = { expense: pending, step: 'who', month };
+        profiles._sessions[sessionKey] = { expense: pending, step: 'review', month };
         await writeProfiles(env.FIREBASE_PROJECT, env.FIREBASE_USER_ID, token, profiles, activeId);
 
-        const header = usedAI
-          ? `🤖 Entendí: $${Number(pending.value).toLocaleString('es-UY')} en "${pending.name}"`
-          : `📝 Gasto pendiente en ${month}\n💰 $${Number(pending.value).toLocaleString('es-UY')} en "${pending.name}"${pending.who ? ' · detectado: ' + pending.who : ''}`;
-
-        await sendMessage(env.BOT_TOKEN, chatId,
-          `${header}\n\n👤 ¿Quién hizo el gasto?\n<i>💡 Tocá un botón o escribilo. Varios separados por coma = compartido.</i>`,
-          whoKeyboard(members)
-        );
+        await sendMessage(env.BOT_TOKEN, chatId, reviewSummary(pending), reviewKeyboard());
       }
 
     } catch (e) {
