@@ -299,6 +299,7 @@ async function ocrSpaceExtract(imageBase64, mediaType, apiKey) {
   form.append('isTable', 'true');
   form.append('OCREngine', '2');
   form.append('scale', 'true');
+  if (mediaType === 'application/pdf') form.append('filetype', 'PDF');
 
   const resp = await fetch('https://api.ocr.space/parse/image', {
     method: 'POST',
@@ -432,6 +433,16 @@ async function transcribeAudio(bytes, mimeType, apiKey) {
   return (j.text || '').trim();
 }
 
+// ── Convertir Uint8Array a base64 ────────────────────────
+function bytesToBase64(bytes) {
+  const CHUNK = 8192;
+  const parts = [];
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    parts.push(String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK)));
+  }
+  return btoa(parts.join(''));
+}
+
 // ── Descargar foto de Telegram ───────────────────────────
 async function downloadTelegramPhoto(botToken, fileId) {
   // Obtener ruta del archivo
@@ -527,9 +538,9 @@ function stepControlsKeyboard() {
 function reviewKeyboard() {
   return kb([
     [['✅ Guardar así', '/listo']],
-    [['✏️ Quién', '__edit_who'], ['✏️ Corresponde a', '__edit_belongs']],
-    [['✏️ Grupo', '__edit_group'], ['✏️ Comercio', '__edit_commerce']],
-    [['✏️ Medio de pago', '__edit_payment']],
+    [['✏️ Categoría', '__edit_name'], ['✏️ Quién', '__edit_who']],
+    [['✏️ Corresponde a', '__edit_belongs'], ['✏️ Grupo', '__edit_group']],
+    [['✏️ Comercio', '__edit_commerce'], ['✏️ Medio de pago', '__edit_payment']],
     [['❌ Cancelar', '/cancelar']]
   ]);
 }
@@ -733,7 +744,8 @@ export default {
           `<code>[monto] [categoría] [quién]</code>\n` +
           `Ej: <code>850 super facu</code>\n\n` +
           `📸 O mandame una foto del ticket y yo lo leo por vos 💖\n` +
-          `🎤 También podés mandarme una nota de voz y la transcribo 💕\n\n` +
+          `📄 También leo PDFs (factura UTE, OSE, etc) — mandame el archivo 💕\n` +
+          `🎤 O una nota de voz y la transcribo 💕\n\n` +
           `<b>Otros comanditos:</b>\n` +
           `💚 <code>/ingreso 50000 Sueldo @facu</code>\n` +
           `💰 <code>/ahorro 5000 Ahorro mensual</code>\n` +
@@ -790,6 +802,57 @@ export default {
           `❓ ¿El monto es correcto? Tocá ✅ o escribime el monto correcto (ej: <code>2580</code>).`,
           kb([[['✅ Sí, es correcto', '/si'], ['❌ Cancelar', '/cancelar']]])
         );
+        return new Response('OK');
+      }
+
+      // ── Documento PDF: OCR y mismo flujo que foto ─────
+      if (msg.document && (msg.document.mime_type === 'application/pdf' || /\.pdf$/i.test(msg.document.file_name || ''))) {
+        await sendMessage(env.BOT_TOKEN, chatId, '📄 Dejame leer ese PDF, dame un segundito...');
+        try {
+          const { bytes } = await downloadTelegramFileBytes(env.BOT_TOKEN, msg.document.file_id);
+          // OCR.space free tier limita PDFs a ~1MB en base64
+          if (bytes.length > 900 * 1024) {
+            await sendMessage(env.BOT_TOKEN, chatId, '😕 Ese PDF es grande para mi OCR (más de ~900KB). ¿Probás con uno más liviano o me mandás una foto?');
+            return new Response('OK');
+          }
+          const base64 = bytesToBase64(bytes);
+          const categories = profile?.months?.[month]?.expense?.map(r => r.name) || [];
+          const extracted = await analyzeImage(null, base64, 'application/pdf', categories, env.OCR_API_KEY || 'K89209721888957');
+
+          if (!extracted || !extracted.total) {
+            await sendMessage(env.BOT_TOKEN, chatId, '😕 No logré extraer un total de ese PDF. ¿Probás con una foto del ticket?');
+            return new Response('OK');
+          }
+
+          let who = members[0] || '';
+          if (msg.caption) {
+            const { who: captionWho } = detectMember(msg.caption, members);
+            if (captionWho) who = captionWho;
+          }
+
+          const expense = {
+            name: extracted.suggestedCategory || extracted.commerce || 'Ticket',
+            value: extracted.total,
+            who: who,
+            belongsTo: '',
+            commerce: extracted.commerce || 'Ticket',
+            paymentMethod: extracted.paymentMethod || '',
+            group: ''
+          };
+
+          profiles._sessions = profiles._sessions || {};
+          profiles._sessions[String(chatId)] = { expense, step: 'confirm', month };
+          await writeProfiles(env.FIREBASE_PROJECT, env.FIREBASE_USER_ID, token, profiles, activeId);
+
+          const details = extracted.details ? `\n📝 ${extracted.details}` : '';
+          await sendMessage(env.BOT_TOKEN, chatId,
+            `📄 PDF leído (${month})\n💰 Detecté <b>$${Number(extracted.total).toLocaleString('es-UY')}</b> en "${expense.name}"${expense.commerce ? ' · ' + expense.commerce : ''}${expense.paymentMethod ? ' · ' + expense.paymentMethod : ''}${who ? ' · ' + who : ''}${details}\n\n` +
+            `❓ ¿El monto es correcto? Tocá ✅ o escribime el monto correcto (ej: <code>2580</code>).`,
+            kb([[['✅ Sí, es correcto', '/si'], ['❌ Cancelar', '/cancelar']]])
+          );
+        } catch (e) {
+          await sendMessage(env.BOT_TOKEN, chatId, '😕 No pude leer ese PDF: ' + e.message);
+        }
         return new Response('OK');
       }
 
@@ -865,6 +928,13 @@ export default {
 
           if (session.step === 'review') {
             // Taps para editar campos individuales
+            if (text === '__edit_name') {
+              session.step = 'name'; session.returnToReview = true;
+              profiles._sessions[sessionKey] = session;
+              await writeProfiles(env.FIREBASE_PROJECT, env.FIREBASE_USER_ID, token, profiles, activeId);
+              await sendMessage(env.BOT_TOKEN, chatId, '✏️ ¿Cuál es la categoría/descripción correcta? (escribila)', stepControlsKeyboard());
+              return new Response('OK');
+            }
             if (text === '__edit_who') {
               session.step = 'who'; session.returnToReview = true;
               profiles._sessions[sessionKey] = session;
@@ -905,6 +975,12 @@ export default {
             return new Response('OK');
           }
 
+          if (session.step === 'name') {
+            if (!skip && text) session.expense.name = text.trim();
+            if (session.returnToReview) { await gotoReview(); return new Response('OK'); }
+            await gotoReview();
+            return new Response('OK');
+          }
           if (session.step === 'who') {
             if (!skip) {
               const multi = parseBelongsMembers(text, contributors);

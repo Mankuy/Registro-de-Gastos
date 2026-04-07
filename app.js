@@ -1255,7 +1255,9 @@ function renderPorPersona() {
       if (porPersonaSelected === 'Hogar') {
         return bt === 'Hogar' || (bt === '' && who === '');
       }
-      return bt === porPersonaSelected || (bt === '' && who === porPersonaSelected);
+      return bt === porPersonaSelected
+          || (bt === '' && who === porPersonaSelected)
+          || (bt === 'Hogar' && who === porPersonaSelected);
     };
     // Hogar income = ALL income (sum of all family members), expenses = only Hogar-assigned
     const incRows = porPersonaSelected === 'Hogar'
@@ -2322,10 +2324,13 @@ function _updateSettingsStatus() {
   const tgChat  = state.telegramChatId || localStorage.getItem('hogar_telegram_chatid') || '';
   if (tgToken && tgChat) {
     tgStatusEl.className   = 'settings-status ok';
-    tgStatusEl.textContent = '✅ Bot de Telegram configurado';
-  } else if (tgToken || tgChat) {
+    tgStatusEl.textContent = '✅ Bot configurado (solo chats autorizados)';
+  } else if (tgToken) {
+    tgStatusEl.className   = 'settings-status ok';
+    tgStatusEl.textContent = '✅ Bot configurado (abierto a cualquiera con el bot)';
+  } else if (tgChat) {
     tgStatusEl.className   = 'settings-status none';
-    tgStatusEl.textContent = 'Falta ' + (!tgToken ? 'el token del bot' : 'el chat ID');
+    tgStatusEl.textContent = 'Falta el token del bot';
   } else {
     tgStatusEl.className   = 'settings-status none';
     tgStatusEl.textContent = 'Sin configurar';
@@ -2941,8 +2946,10 @@ function stopTelegramPolling() {
 
 async function pollTelegramUpdates(token) {
   if (!currentUserId || !state || !currentMonth) return;
-  const chatId = state.telegramChatId || localStorage.getItem('hogar_telegram_chatid') || '';
-  if (!chatId) return;
+  const chatIdRaw = state.telegramChatId || localStorage.getItem('hogar_telegram_chatid') || '';
+  // Si hay chat IDs configurados → solo esos están autorizados.
+  // Si está vacío → cualquiera que tenga el bot puede usarlo.
+  const allowedChatIds = chatIdRaw.split(',').map(s => s.trim()).filter(Boolean);
 
   try {
     const url = 'https://api.telegram.org/bot' + token + '/getUpdates?offset=' + (_telegramLastUpdateId + 1) + '&timeout=0';
@@ -2957,7 +2964,8 @@ async function pollTelegramUpdates(token) {
 
       const msg = update.message;
       if (!msg || !msg.text) continue;
-      if (String(msg.chat.id) !== String(chatId)) continue;
+      const incomingChatId = String(msg.chat.id);
+      if (allowedChatIds.length > 0 && !allowedChatIds.includes(incomingChatId)) continue;
 
       const text = msg.text.trim();
 
@@ -3000,7 +3008,7 @@ async function pollTelegramUpdates(token) {
           await fetch('https://api.telegram.org/bot' + token + '/sendMessage', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ chat_id: chatId, text: '✅ ¡Ingreso anotado en ' + currentMonth + '!\n💚 $' + monto.toLocaleString('es-UY') + ' en "' + desc + '"' + (who ? ' por ' + who + '.' : '') })
+            body: JSON.stringify({ chat_id: incomingChatId, text: '✅ ¡Ingreso anotado en ' + currentMonth + '!\n💚 $' + monto.toLocaleString('es-UY') + ' en "' + desc + '"' + (who ? ' por ' + who + '.' : '') })
           });
         } catch(e) {}
 
@@ -3037,7 +3045,7 @@ async function pollTelegramUpdates(token) {
           await fetch('https://api.telegram.org/bot' + token + '/sendMessage', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ chat_id: chatId, text: '✅ ¡Ahorro registrado!\n💰 $' + monto.toLocaleString('es-UY') + ' — "' + rawDesc + '"' + (who ? ' por ' + who : '') })
+            body: JSON.stringify({ chat_id: incomingChatId, text: '✅ ¡Ahorro registrado!\n💰 $' + monto.toLocaleString('es-UY') + ' — "' + rawDesc + '"' + (who ? ' por ' + who : '') })
           });
         } catch(e) {}
 
@@ -3090,7 +3098,7 @@ async function pollTelegramUpdates(token) {
           await fetch('https://api.telegram.org/bot' + token + '/sendMessage', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ chat_id: chatId, text: '✅ ¡Gasto anotado en ' + currentMonth + '!\n💰 $' + monto.toLocaleString('es-UY') + ' en "' + desc + '"' + (who ? ' por ' + who + '.' : '') })
+            body: JSON.stringify({ chat_id: incomingChatId, text: '✅ ¡Gasto anotado en ' + currentMonth + '!\n💰 $' + monto.toLocaleString('es-UY') + ' en "' + desc + '"' + (who ? ' por ' + who + '.' : '') })
           });
         } catch(e) {}
 
@@ -3109,7 +3117,7 @@ async function pollTelegramUpdates(token) {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                chat_id: chatId,
+                chat_id: incomingChatId,
                 text: '📊 ' + currentMonth + '\nIngresos: $' + totalIncome.toLocaleString('es-UY') +
                       '\nEgresos: $' + totalExpense.toLocaleString('es-UY') +
                       '\nBalance: $' + balance.toLocaleString('es-UY') +
@@ -3128,7 +3136,7 @@ async function pollTelegramUpdates(token) {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              chat_id: chatId,
+              chat_id: incomingChatId,
               text: '🏠 Gestor del Hogar — Bot\n\n' +
                     'Comandos:\n' +
                     '/gasto <monto> <descripcion> [@quien]\n' +
