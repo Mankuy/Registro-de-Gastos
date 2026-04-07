@@ -1460,6 +1460,9 @@ function renderMain() {
       </div>
       <div class="section-body" id="section-body-income">
         <div class="table-wrap">${renderTable('income', month.income)}</div>
+        <div class="section-actions-bottom">
+          <button class="btn-add-row" onclick="openAddRowModal('income')">+ Agregar ingreso</button>
+        </div>
       </div>
     </div>
 
@@ -1480,6 +1483,11 @@ function renderMain() {
       </div>
       <div class="section-body" id="section-body-expense">
         <div class="table-wrap">${renderTable('expense', month.expense)}</div>
+        <div class="section-actions-bottom">
+          <button class="btn-add-row" onclick="openAddRowModal('expense')">+ Agregar egreso</button>
+          <button class="btn-add-row" onclick="openGroupsModal()" title="Gestionar grupos">🏷️ Grupos</button>
+          <button class="btn-add-row" style="color:var(--expense);border-color:var(--expense-light);" onclick="deleteCurrentMonth()">🗑️ Eliminar mes</button>
+        </div>
       </div>
     </div>
   `;
