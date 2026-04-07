@@ -429,8 +429,7 @@ function activateProfile(id, doSave = true) {
 
   // Garantías de estructura
   if (!state.members)   state.members   = DEFAULT_MEMBERS.slice();
-  // Migrar: agregar miembros por defecto que falten
-  DEFAULT_MEMBERS.forEach(m => { if (!state.members.includes(m)) state.members.push(m); });
+  // (No re-agregamos defaults: si el usuario eliminó un miembro, queda eliminado.)
   if (!state.commerces) state.commerces = DEFAULT_COMMERCES.slice();
   if (!state.apiKey)    state.apiKey    = '';
   if (!state.months)    state.months    = {};
@@ -1008,6 +1007,7 @@ function toggleContributor(name) {
   }
   saveState();
   renderMembersDrawer();
+  renderAll();
 }
 window.toggleContributor = toggleContributor;
 
@@ -1040,6 +1040,7 @@ function deleteMember(name) {
     });
   });
   state.members = state.members.filter(m => m !== name);
+  if (state.contributors) state.contributors = state.contributors.filter(n => n !== name);
   saveState();
   renderMembersDrawer();
   renderMain();
@@ -1230,7 +1231,11 @@ function renderPorPersona() {
   const headerMonth = document.getElementById('header-month');
   if (headerMonth) headerMonth.textContent = currentMonth + ' — Por persona';
 
-  const allMembers = ['Hogar'].concat(state.members || []);
+  // Solo mostramos contribuyentes (los que aportan); el resto no tiene flujo propio.
+  const contribs = (state.contributors && state.contributors.length)
+    ? state.members.filter(m => state.contributors.includes(m))
+    : (state.members || []);
+  const allMembers = ['Hogar'].concat(contribs);
   if (!porPersonaSelected || !allMembers.includes(porPersonaSelected)) {
     porPersonaSelected = allMembers[0] || '';
   }
