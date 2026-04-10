@@ -1,4 +1,4 @@
-name = "gestor-hogar-bot"
+name = "soft-base-c19e"
 main = "cloudflare-worker.js"
 compatibility_date = "2024-01-01"
 
