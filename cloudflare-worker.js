@@ -643,8 +643,66 @@ export default {
       const chatId = msg.chat.id;
 
       // Verificar chat autorizado (si está configurado)
-      if (env.ALLOWED_CHAT_ID && String(chatId) !== String(env.ALLOWED_CHAT_ID)) {
+      const allowedIds = (env.ALLOWED_CHAT_ID || '').split(',').map(s => s.trim()).filter(Boolean);
+      if (allowedIds.length && !allowedIds.includes(String(chatId))) {
         return new Response('OK');
+      }
+
+      // ── Handle due_pay callback (gasto fijo precargado) ──
+      if (msg.text && msg.text.startsWith('due_pay|')) {
+        const parts = msg.text.split('|');
+        const [, name, who, commerce, paymentMethod, belongsTo] = parts;
+        const pendingKey = `due_pending_${chatId}`;
+        // Store pending due payment in KV or memory
+        const dueData = JSON.stringify({ name, who, commerce, paymentMethod, belongsTo, group: 'fijos' });
+        // We'll use a simple approach: ask for amount, then process on next message
+        await sendMessage(env.BOT_TOKEN, chatId,
+          `💰 <b>Registrar pago: ${name}</b>\n\n` +
+          `Enviame solo el monto (ej: <code>5200</code>):`,
+        );
+        // Store in pending state — we'll save to a simple env-based approach
+        // Use Telegram's reply approach: set state via message
+        // We prefix next expected message
+        if (typeof globalThis._duePending === 'undefined') globalThis._duePending = {};
+        globalThis._duePending[chatId] = JSON.parse(dueData);
+        return new Response('OK');
+      }
+
+      // ── Check if there's a pending due payment ──
+      if (globalThis._duePending && globalThis._duePending[chatId] && msg.text) {
+        const amount = parseFloat(msg.text.replace(/[,$]/g, '').replace(',', '.'));
+        if (!isNaN(amount) && amount > 0) {
+          const due = globalThis._duePending[chatId];
+          delete globalThis._duePending[chatId];
+
+          const token = await getFirebaseToken(env.FIREBASE_API_KEY, env.FIREBASE_EMAIL, env.FIREBASE_PASSWORD);
+          const result = await readProfiles(env.FIREBASE_PROJECT, env.FIREBASE_USER_ID, token);
+          if (result && result.profiles) {
+            const { profiles } = result;
+            const activeId = env.ACTIVE_PROFILE || result.activeId || 'familia';
+            const profile = profiles[activeId];
+            const month = getCurrentMonth();
+            if (!profile.months) profile.months = {};
+            if (!profile.months[month]) profile.months[month] = { income: [], expense: [], savings: [] };
+            profile.months[month].expense.push({
+              name: due.name,
+              value: String(amount),
+              who: due.who,
+              commerce: due.commerce,
+              paymentMethod: due.paymentMethod,
+              belongsTo: due.belongsTo,
+              group: 'fijos',
+              date: new Date().toISOString().slice(0, 10),
+              dueDay: 0,
+              dueFreq: ''
+            });
+            await writeProfiles(env.FIREBASE_PROJECT, env.FIREBASE_USER_ID, token, profiles, activeId);
+            await sendMessage(env.BOT_TOKEN, chatId,
+              `✅ <b>Pago registrado</b>\n\n📋 ${due.name}\n💰 $${amount.toLocaleString('es-UY')}\n👤 ${due.who || 'Sin asignar'}`
+            );
+          }
+          return new Response('OK');
+        }
       }
 
       // Autenticar con Firebase
@@ -1109,5 +1167,102 @@ export default {
     }
 
     return new Response('OK');
+  },
+
+  // ── Cron Trigger: recordatorios de vencimiento ──────────
+  async scheduled(event, env, ctx) {
+    try {
+      const token = await getFirebaseToken(env.FIREBASE_API_KEY, env.FIREBASE_EMAIL, env.FIREBASE_PASSWORD);
+      const result = await readProfiles(env.FIREBASE_PROJECT, env.FIREBASE_USER_ID, token);
+      if (!result || !result.profiles) return;
+
+      const profileId = env.ACTIVE_PROFILE || 'familia';
+      const profile = result.profiles[profileId];
+      if (!profile || !profile.months) return;
+
+      const now = new Date();
+      // Check 3 days ahead
+      const target = new Date(now);
+      target.setDate(target.getDate() + 3);
+      const targetDay = target.getDate();
+      const targetMonth = target.getMonth(); // 0-indexed
+      const isEvenMonth = (target.getMonth() + 1) % 2 === 0;
+
+      // Collect due items from any month (they repeat)
+      const dueItems = [];
+      const seen = new Set();
+      Object.values(profile.months).forEach(month => {
+        (month.expense || []).forEach(row => {
+          if (row.group !== 'fijos' || !row.dueDay) return;
+          const key = row.name + '|' + row.dueDay;
+          if (seen.has(key)) return;
+          seen.add(key);
+
+          const freq = row.dueFreq || 'mensual';
+          if (freq === 'bimensual' && !isEvenMonth) return;
+          if (row.dueDay === targetDay) {
+            dueItems.push({
+              name: row.name,
+              who: row.who || '',
+              commerce: row.commerce || '',
+              paymentMethod: row.paymentMethod || '',
+              belongsTo: row.belongsTo || '',
+              dueDay: row.dueDay,
+              dueFreq: freq
+            });
+          }
+        });
+      });
+
+      if (dueItems.length === 0) return;
+
+      // Send Telegram reminders
+      const chatIds = (env.ALLOWED_CHAT_ID || '').split(',').map(s => s.trim()).filter(Boolean);
+      for (const item of dueItems) {
+        const dateStr = `${targetDay}/${targetMonth + 1}`;
+        const msg = `⏰ <b>Recordatorio de vencimiento</b>\n\n`
+          + `📋 <b>${item.name}</b>\n`
+          + `📅 Vence el <b>${dateStr}</b> (en 3 días)\n`
+          + (item.who ? `👤 Quién paga: ${item.who}\n` : '')
+          + (item.commerce ? `🏪 Comercio: ${item.commerce}\n` : '')
+          + (item.paymentMethod ? `💳 Medio: ${item.paymentMethod}\n` : '')
+          + `\nTocá el botón para registrar el pago:`;
+
+        const keyboard = {
+          inline_keyboard: [[{
+            text: '💰 Registrar pago de ' + item.name,
+            callback_data: 'due_pay|' + item.name + '|' + (item.who || '') + '|' + (item.commerce || '') + '|' + (item.paymentMethod || '') + '|' + (item.belongsTo || '')
+          }]]
+        };
+
+        for (const chatId of chatIds) {
+          await sendMessage(env.BOT_TOKEN, chatId, msg, keyboard);
+        }
+      }
+
+      // Send email reminders via EmailJS (if configured)
+      if (env.EMAILJS_SERVICE_ID && env.EMAILJS_TEMPLATE_ID && env.EMAILJS_PUBLIC_KEY) {
+        const emails = (env.REMINDER_EMAILS || '').split(',').map(s => s.trim()).filter(Boolean);
+        for (const email of emails) {
+          const itemsList = dueItems.map(item => `• ${item.name} — vence el ${targetDay}/${targetMonth + 1}`).join('\n');
+          await fetch('https://api.emailjs.com/api/v1.0/email/send', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              service_id: env.EMAILJS_SERVICE_ID,
+              template_id: env.EMAILJS_TEMPLATE_ID,
+              user_id: env.EMAILJS_PUBLIC_KEY,
+              template_params: {
+                to_email: email,
+                subject: '⏰ Recordatorio: vencimientos en 3 días',
+                message: `Hola,\n\nEstos gastos fijos vencen en 3 días:\n\n${itemsList}\n\nIngresá a Gestor del Hogar para registrar los pagos.`
+              }
+            })
+          });
+        }
+      }
+    } catch (e) {
+      console.error('Scheduled worker error:', e.message);
+    }
   }
 };

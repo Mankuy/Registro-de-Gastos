@@ -347,6 +347,8 @@ function runMigrationIfNeeded(userId) {
       month.expense.forEach(row => {
         if (row.paymentMethod === undefined) row.paymentMethod = '';
         if (row.group        === undefined) row.group         = '';
+        if (row.dueDay       === undefined) row.dueDay        = 0;
+        if (row.dueFreq      === undefined) row.dueFreq       = '';
       });
     }
   });
@@ -767,6 +769,22 @@ function updatePaymentMethod(type, index, val) {
   if (!currentMonth) return;
   if (!state.months[currentMonth][type][index]) return;
   state.months[currentMonth][type][index].paymentMethod = val;
+  saveState();
+}
+
+function updateDueDay(index, val) {
+  if (!currentMonth) return;
+  const row = state.months[currentMonth].expense[index];
+  if (!row) return;
+  row.dueDay = parseInt(val) || 0;
+  saveState();
+}
+
+function updateDueFreq(index, val) {
+  if (!currentMonth) return;
+  const row = state.months[currentMonth].expense[index];
+  if (!row) return;
+  row.dueFreq = val;
   saveState();
 }
 
@@ -1424,7 +1442,7 @@ function renderPersonaCharts(monthKeys) {
         responsive: true, maintainAspectRatio: false,
         onClick: (evt, elements) => { if (elements.length > 0) toggleDoughnutSegment(personaChartPie, elements[0].index); },
         plugins: {
-          legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 13 }, padding: 14 }, onClick: function(e, item, legend) { Chart.defaults.plugins.legend.onClick.call(this, e, item, legend); dismissLegendHint(); } },
+          legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 13 }, padding: 14 }, onClick: function(e, item, legend) { legend.chart.toggleDataVisibility(item.index); legend.chart.update(); dismissLegendHint(); } },
           tooltip: {
             padding: 10, cornerRadius: 8, titleFont: { size: 13, weight: 'bold' }, bodyFont: { size: 12 }, boxPadding: 4,
             callbacks: {
@@ -1742,7 +1760,7 @@ function renderTable(type, rows) {
   };
 
   const thead = isExpense
-    ? `<tr>${th('name','Categoría')}${th('who','Quién')}${th('belongsTo','Corresponde a')}${th('commerce','Comercio')}${th('paymentMethod','Medio de pago')}${th('date','Fecha')}${th('value','Monto ($)')}<th></th></tr>`
+    ? `<tr>${th('name','Categoría')}${th('who','Quién')}${th('belongsTo','Corresponde a')}${th('commerce','Comercio')}${th('paymentMethod','Medio de pago')}${th('date','Fecha')}<th title="Vencimiento">Vto</th>${th('value','Monto ($)')}<th></th></tr>`
     : `<tr>${th('name','Categoría')}${th('who','Quién')}${th('belongsTo','Corresponde a')}${th('date','Fecha')}${th('value','Monto ($)')}<th></th></tr>`;
 
   // Build indexed list so mutating handlers still reference original index
@@ -1815,6 +1833,25 @@ function renderTable(type, rows) {
           onchange="updateDate('${type}',${i},this.value)" />
       </td>`;
 
+    const isFijo = isExpense && row.group === 'fijos';
+    const dueDayOpts = Array.from({length: 31}, (_, d) => {
+      const day = d + 1;
+      return `<option value="${day}"${row.dueDay == day ? ' selected' : ''}>${day}</option>`;
+    }).join('');
+    const dueCell = isFijo
+      ? `<td>
+           <div style="display:flex;align-items:center;gap:3px;">
+             <select class="table-select" style="width:55px" onchange="updateDueDay(${i},this.value)" title="Día de vencimiento">
+               <option value="0"${!row.dueDay ? ' selected' : ''}>—</option>
+               ${dueDayOpts}
+             </select>
+             <select class="table-select" style="width:70px;font-size:0.68rem" onchange="updateDueFreq(${i},this.value)" title="Frecuencia">
+               <option value="mensual"${(row.dueFreq || 'mensual') === 'mensual' ? ' selected' : ''}>Mens.</option>
+               <option value="bimensual"${row.dueFreq === 'bimensual' ? ' selected' : ''}>Bimens.</option>
+             </select>
+           </div>
+         </td>` : (isExpense ? '<td></td>' : '');
+
     const amountCell = `
       <td>
         <input class="amount-input" type="number" min="0" step="0.01"
@@ -1830,13 +1867,13 @@ function renderTable(type, rows) {
         </div>
       </td>`;
 
-    return `<tr>${categoryCell}${whoCell}${belongsToCell}${commerceCell}${paymentCell}${dateCell}${amountCell}${deleteCell}</tr>`;
+    return `<tr>${categoryCell}${whoCell}${belongsToCell}${commerceCell}${paymentCell}${dateCell}${dueCell}${amountCell}${deleteCell}</tr>`;
   }).join('');
 
   const total = rows.reduce((acc, r) => acc + (parseFloat(r.value) || 0), 0);
 
   const totalRow = isExpense
-    ? `<tr class="total-row"><td>Total</td><td></td><td></td><td></td><td></td><td></td><td class="total-expense">${fmt(total)}</td><td></td></tr>`
+    ? `<tr class="total-row"><td>Total</td><td></td><td></td><td></td><td></td><td></td><td></td><td class="total-expense">${fmt(total)}</td><td></td></tr>`
     : `<tr class="total-row"><td>Total</td><td></td><td></td><td></td><td class="total-income">${fmt(total)}</td><td></td></tr>`;
 
   return `<table class="${tableClass}"><thead>${thead}</thead><tbody>${tbodyRows}${totalRow}</tbody></table>`;
@@ -2094,7 +2131,7 @@ function renderCharts() {
       interaction: { mode: 'nearest', intersect: true },
       onClick: (evt, elements) => { if (elements.length > 0) toggleDoughnutSegment(chartPie, elements[0].index); },
       plugins: {
-        legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 13 }, padding: 14 }, onClick: function(e, item, legend) { Chart.defaults.plugins.legend.onClick.call(this, e, item, legend); dismissLegendHint(); } },
+        legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 13 }, padding: 14 }, onClick: function(e, item, legend) { legend.chart.toggleDataVisibility(item.index); legend.chart.update(); dismissLegendHint(); } },
         tooltip: {
           enabled: true, padding: 10, cornerRadius: 8,
           titleFont: { size: 13, weight: 'bold' }, bodyFont: { size: 12 },
