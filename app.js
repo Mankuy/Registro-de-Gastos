@@ -705,13 +705,23 @@ function addMonth(name) {
   }
 
   // Default rows + fixed expenses (avoid duplicates)
-  const defaultExpenses = _getDefaultRows('expense').map(n => ({ name: n, value: '', who: '', commerce: '', paymentMethod: '', group: '', dueDay: 0, dueFreq: '' }));
+  const defaultExpenses = _getDefaultRows('expense').map(n => ({ name: n, value: '', who: '', commerce: '', paymentMethod: '', group: 'fijos', dueDay: 0, dueFreq: '' }));
   const fixedNames = new Set(fixedExpenses.map(r => r.name));
   const filteredDefaults = defaultExpenses.filter(r => !fixedNames.has(r.name));
 
+  // Preload empty rows for each category group
+  const categoryStubs = [
+    { name: '', value: '', who: '', commerce: '', paymentMethod: '', group: 'comida', dueDay: 0, dueFreq: '', belongsTo: 'Hogar' },
+    { name: '', value: '', who: '', commerce: '', paymentMethod: '', group: 'farmacia', dueDay: 0, dueFreq: '', belongsTo: 'Hogar' },
+    { name: '', value: '', who: '', commerce: '', paymentMethod: '', group: 'personal_facu', dueDay: 0, dueFreq: '', belongsTo: '' },
+    { name: '', value: '', who: '', commerce: '', paymentMethod: '', group: 'personal_lu', dueDay: 0, dueFreq: '', belongsTo: '' },
+    { name: '', value: '', who: '', commerce: '', paymentMethod: '', group: 'personal_fran', dueDay: 0, dueFreq: '', belongsTo: '' },
+    { name: '', value: '', who: '', commerce: '', paymentMethod: '', group: 'casa', dueDay: 0, dueFreq: '', belongsTo: 'Hogar' },
+  ];
+
   state.months[name] = {
     income:  _getDefaultRows('income').map(n  => ({ name: n, value: '', who: '' })),
-    expense: [...fixedExpenses, ...filteredDefaults]
+    expense: [...fixedExpenses, ...filteredDefaults, ...categoryStubs]
   };
   currentMonth = name;
   saveState();
