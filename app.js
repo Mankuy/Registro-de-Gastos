@@ -1256,7 +1256,7 @@ function renderPorPersona() {
       const bt = (r.belongsTo || '').trim();
       const who = (r.who || '').trim();
       if (porPersonaSelected === 'Hogar') {
-        return bt === 'Hogar' || (bt === '' && who === '');
+        return true;
       }
       return bt === porPersonaSelected
           || (bt === '' && who === porPersonaSelected)
@@ -1377,7 +1377,7 @@ function renderPersonaCharts(monthKeys) {
   const matchesPersona = (r) => {
     const bt = (r.belongsTo || '').trim();
     const who = (r.who || '').trim();
-    if (porPersonaSelected === 'Hogar') return bt === 'Hogar' || (bt === '' && who === '');
+    if (porPersonaSelected === 'Hogar') return true;
     return bt === porPersonaSelected || (bt === '' && who === porPersonaSelected) || (bt === 'Hogar' && who === porPersonaSelected);
   };
 
@@ -1443,7 +1443,6 @@ function renderPersonaCharts(monthKeys) {
     const avgMonthly = monthCount > 0 ? totalExpense / monthCount : 0;
     const savingsRate = totalIncome > 0 ? ((totalIncome - totalExpense) / totalIncome * 100) : NaN;
     topExpenses.sort((a, b) => b.value - a.value);
-    const top3 = topExpenses.slice(0, 3);
 
     // Category bars
     const maxGroupVal = sortedGroups.length > 0 ? sortedGroups[0][1].total : 0;
@@ -1473,16 +1472,22 @@ function renderPersonaCharts(monthKeys) {
           <div style="font-size:1rem;font-weight:700;color:${!isNaN(savingsRate) && savingsRate >= 0 ? 'var(--income)' : 'var(--expense)'};">${isNaN(savingsRate) ? '—' : Math.round(savingsRate) + '%'}</div>
         </div>
       </div>
-      <div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-soft);margin-bottom:0.4rem;">Distribución por categoría</div>
-      ${categoryBars}
-      ${top3.length > 0 ? `
-        <div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-soft);margin:0.75rem 0 0.4rem;">🔝 Mayores gastos</div>
-        ${top3.map(t => `
+      <div class="persona-collapse-toggle" data-target="persona-cat-list" style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-soft);margin-bottom:0.4rem;cursor:pointer;user-select:none;">
+        <span class="collapse-arrow" style="display:inline-block;transition:transform 0.2s;margin-right:0.3rem;">▶</span>Distribución por categoría
+      </div>
+      <div id="persona-cat-list" style="display:none;">${categoryBars}</div>
+      ${topExpenses.length > 0 ? `
+        <div class="persona-collapse-toggle" data-target="persona-top-list" style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-soft);margin:0.75rem 0 0.4rem;cursor:pointer;user-select:none;">
+          <span class="collapse-arrow" style="display:inline-block;transition:transform 0.2s;margin-right:0.3rem;">▶</span>🔝 Mayores gastos (${topExpenses.length})
+        </div>
+        <div id="persona-top-list" style="display:none;">
+        ${topExpenses.map(t => `
           <div style="display:flex;justify-content:space-between;align-items:center;padding:0.25rem 0;border-bottom:1px solid var(--border);">
             <span style="font-size:0.78rem;color:var(--text);">${esc(t.name)} <span style="color:var(--text-soft);font-size:0.68rem;">(${esc(t.month)})</span></span>
             <span style="font-size:0.78rem;font-weight:700;color:var(--expense);">${fmt(t.value)}</span>
           </div>
         `).join('')}
+        </div>
       ` : ''}
     `;
 
@@ -1491,6 +1496,19 @@ function renderPersonaCharts(monthKeys) {
       bar.addEventListener('click', function() {
         const idx = parseInt(this.getAttribute('data-idx'));
         if (personaChartPie) toggleDoughnutSegment(personaChartPie, idx);
+      });
+    });
+
+    // Collapsible sections
+    insightsEl.querySelectorAll('.persona-collapse-toggle').forEach(toggle => {
+      toggle.addEventListener('click', function() {
+        const targetId = this.getAttribute('data-target');
+        const target = document.getElementById(targetId);
+        const arrow = this.querySelector('.collapse-arrow');
+        if (!target) return;
+        const isOpen = target.style.display !== 'none';
+        target.style.display = isOpen ? 'none' : 'block';
+        if (arrow) arrow.style.transform = isOpen ? 'rotate(0deg)' : 'rotate(90deg)';
       });
     });
   }
