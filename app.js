@@ -1335,9 +1335,9 @@ function renderPorPersona() {
     <div class="section-card" style="margin-bottom:1rem;">
       <div class="section-header"><div class="section-title">📊 Gráficos</div></div>
       <div class="section-body" style="padding:0.75rem;">
-        <div style="display:flex;flex-wrap:wrap;gap:1rem;justify-content:center;">
+        <div style="display:flex;flex-wrap:wrap;gap:1rem;justify-content:center;align-items:flex-start;">
           <div style="flex:1;min-width:250px;max-width:400px;height:280px;"><canvas id="persona-chart-pie"></canvas></div>
-          <div style="flex:1;min-width:250px;max-width:400px;height:280px;"><canvas id="persona-chart-bar"></canvas></div>
+          <div id="persona-insights" style="flex:1;min-width:250px;max-width:400px;"></div>
         </div>
       </div>
     </div>
@@ -1356,10 +1356,9 @@ function renderPorPersona() {
   renderPersonaCharts(monthKeys);
 }
 
-let personaChartPie = null, personaChartBar = null;
+let personaChartPie = null;
 function destroyPersonaCharts() {
   if (personaChartPie) { personaChartPie.destroy(); personaChartPie = null; }
-  if (personaChartBar) { personaChartBar.destroy(); personaChartBar = null; }
 }
 
 function renderPersonaCharts(monthKeys) {
@@ -1367,12 +1366,13 @@ function renderPersonaCharts(monthKeys) {
   destroyPersonaCharts();
 
   const canvasPie = document.getElementById('persona-chart-pie');
-  const canvasBar = document.getElementById('persona-chart-bar');
-  if (!canvasPie || !canvasBar) return;
+  const insightsEl = document.getElementById('persona-insights');
+  if (!canvasPie) return;
 
-  // Aggregate expenses by group across all months for this persona
+  // Aggregate expenses by group and by month
   const groupTotals = {};
   const monthTotals = {};
+  const topExpenses = [];
 
   const matchesPersona = (r) => {
     const bt = (r.belongsTo || '').trim();
@@ -1382,32 +1382,44 @@ function renderPersonaCharts(monthKeys) {
   };
 
   const groups = getEffectiveGroups();
+  let totalExpense = 0, totalIncome = 0;
   monthKeys.forEach(mk => {
     const monthData = state.months[mk];
+    const incRows = porPersonaSelected === 'Hogar'
+      ? monthData.income.filter(r => parseFloat(r.value) > 0)
+      : monthData.income.filter(matchesPersona);
+    totalIncome += incRows.reduce((s, r) => s + (parseFloat(r.value) || 0), 0);
+
     const expRows = monthData.expense.filter(matchesPersona);
     let monthTotal = 0;
     expRows.forEach(r => {
       const val = parseFloat(r.value) || 0;
       if (val <= 0) return;
       monthTotal += val;
+      totalExpense += val;
       const grp = r.group || '';
       const label = (groups[grp] && groups[grp].label) || r.name || 'Otros';
-      groupTotals[label] = (groupTotals[label] || 0) + val;
+      const emoji = (groups[grp] && groups[grp].emoji) || '📦';
+      groupTotals[label] = groupTotals[label] || { total: 0, emoji };
+      groupTotals[label].total += val;
+      topExpenses.push({ name: r.name, value: val, month: mk });
     });
     if (monthTotal > 0) monthTotals[mk] = monthTotal;
   });
 
-  // Doughnut: expense by group
-  const pieLabels = Object.keys(groupTotals);
-  const pieData = Object.values(groupTotals);
+  // Doughnut with click-to-explode
+  const sortedGroups = Object.entries(groupTotals).sort((a, b) => b[1].total - a[1].total);
+  const pieLabels = sortedGroups.map(([k]) => k);
+  const pieData = sortedGroups.map(([, v]) => v.total);
   const pieColors = pieLabels.map((_, i) => CHART_COLORS[i % CHART_COLORS.length]);
 
   if (pieData.length > 0) {
     personaChartPie = new Chart(canvasPie, {
       type: 'doughnut',
-      data: { labels: pieLabels, datasets: [{ data: pieData, backgroundColor: pieColors, borderWidth: 2, hoverBorderWidth: 3, hoverOffset: 18 }] },
+      data: { labels: pieLabels, datasets: [{ data: pieData, backgroundColor: pieColors, borderWidth: 2, hoverBorderWidth: 3, hoverOffset: 18, offset: pieData.map(() => 0) }] },
       options: {
         responsive: true, maintainAspectRatio: false,
+        onClick: (evt, elements) => { if (elements.length > 0) toggleDoughnutSegment(personaChartPie, elements[0].index); },
         plugins: {
           legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 10 }, padding: 12 } },
           tooltip: {
@@ -1425,30 +1437,61 @@ function renderPersonaCharts(monthKeys) {
     });
   }
 
-  // Bar: expense by month
-  const barLabels = Object.keys(monthTotals);
-  const barData = Object.values(monthTotals);
-  const barColors = barLabels.map((_, i) => CHART_COLORS[i % CHART_COLORS.length]);
+  // Insights panel
+  if (insightsEl) {
+    const monthCount = Object.keys(monthTotals).length;
+    const avgMonthly = monthCount > 0 ? totalExpense / monthCount : 0;
+    const savingsRate = totalIncome > 0 ? ((totalIncome - totalExpense) / totalIncome * 100) : NaN;
+    topExpenses.sort((a, b) => b.value - a.value);
+    const top3 = topExpenses.slice(0, 3);
 
-  if (barData.length > 0) {
-    personaChartBar = new Chart(canvasBar, {
-      type: 'bar',
-      data: { labels: barLabels, datasets: [{ data: barData, backgroundColor: barColors, borderRadius: 6 }] },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        interaction: { mode: 'nearest', intersect: true },
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            padding: 10, cornerRadius: 8, titleFont: { size: 13, weight: 'bold' }, bodyFont: { size: 12 },
-            callbacks: { label: (ctx) => ' $' + ctx.parsed.y.toLocaleString('es-UY') }
-          }
-        },
-        scales: {
-          x: { grid: { display: false }, ticks: { font: { size: 10 } } },
-          y: { grid: { display: false }, ticks: { callback: (val) => '$' + val.toLocaleString('es-UY'), font: { size: 10 } } }
-        }
-      }
+    // Category bars
+    const maxGroupVal = sortedGroups.length > 0 ? sortedGroups[0][1].total : 0;
+    const categoryBars = sortedGroups.map(([label, info], i) => {
+      const pct = maxGroupVal > 0 ? Math.round((info.total / maxGroupVal) * 100) : 0;
+      const pctOfTotal = totalExpense > 0 ? ((info.total / totalExpense) * 100).toFixed(1) : 0;
+      return `
+        <div class="persona-insight-bar" style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.35rem;cursor:pointer;" data-idx="${i}">
+          <span style="font-size:0.85rem;width:1.2rem;text-align:center;">${info.emoji}</span>
+          <span style="font-size:0.75rem;min-width:70px;color:var(--text);font-weight:500;">${esc(label)}</span>
+          <div style="flex:1;height:8px;background:var(--border);border-radius:4px;overflow:hidden;">
+            <div style="height:100%;width:${pct}%;background:${CHART_COLORS[i % CHART_COLORS.length]};border-radius:4px;transition:width 0.35s;"></div>
+          </div>
+          <span style="font-size:0.72rem;font-weight:700;min-width:55px;text-align:right;color:var(--expense);">${pctOfTotal}%</span>
+        </div>`;
+    }).join('');
+
+    insightsEl.innerHTML = `
+      <div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-soft);margin-bottom:0.5rem;">📋 Análisis de ${esc(porPersonaSelected)}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;margin-bottom:0.75rem;">
+        <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:0.5rem 0.6rem;text-align:center;">
+          <div style="font-size:0.65rem;color:var(--text-soft);text-transform:uppercase;">Prom. mensual</div>
+          <div style="font-size:1rem;font-weight:700;color:var(--expense);">${fmt(avgMonthly)}</div>
+        </div>
+        <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:0.5rem 0.6rem;text-align:center;">
+          <div style="font-size:0.65rem;color:var(--text-soft);text-transform:uppercase;">Tasa de ahorro</div>
+          <div style="font-size:1rem;font-weight:700;color:${!isNaN(savingsRate) && savingsRate >= 0 ? 'var(--income)' : 'var(--expense)'};">${isNaN(savingsRate) ? '—' : Math.round(savingsRate) + '%'}</div>
+        </div>
+      </div>
+      <div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-soft);margin-bottom:0.4rem;">Distribución por categoría</div>
+      ${categoryBars}
+      ${top3.length > 0 ? `
+        <div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-soft);margin:0.75rem 0 0.4rem;">🔝 Mayores gastos</div>
+        ${top3.map(t => `
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:0.25rem 0;border-bottom:1px solid var(--border);">
+            <span style="font-size:0.78rem;color:var(--text);">${esc(t.name)} <span style="color:var(--text-soft);font-size:0.68rem;">(${esc(t.month)})</span></span>
+            <span style="font-size:0.78rem;font-weight:700;color:var(--expense);">${fmt(t.value)}</span>
+          </div>
+        `).join('')}
+      ` : ''}
+    `;
+
+    // Click on category bar → explode that doughnut segment
+    insightsEl.querySelectorAll('.persona-insight-bar').forEach(bar => {
+      bar.addEventListener('click', function() {
+        const idx = parseInt(this.getAttribute('data-idx'));
+        if (personaChartPie) toggleDoughnutSegment(personaChartPie, idx);
+      });
     });
   }
 }
@@ -1952,6 +1995,15 @@ function updateInsightCards() {
 let chartPie = null;
 let chartBar = null;
 
+function toggleDoughnutSegment(chart, idx) {
+  const ds = chart.data.datasets[0];
+  const offsets = ds.offset;
+  const isActive = offsets[idx] > 0;
+  for (let i = 0; i < offsets.length; i++) offsets[i] = 0;
+  if (!isActive) offsets[idx] = 28;
+  chart.update();
+}
+
 function destroyCharts() {
   if (chartPie) { chartPie.destroy(); chartPie = null; }
   if (chartBar) { chartBar.destroy(); chartBar = null; }
@@ -1975,10 +2027,11 @@ function renderCharts() {
 
   chartPie = new Chart(canvasPie, {
     type: 'doughnut',
-    data: { labels: pieLabels, datasets: [{ data: pieData, backgroundColor: pieColors, borderWidth: 2, hoverBorderWidth: 3, hoverOffset: 18 }] },
+    data: { labels: pieLabels, datasets: [{ data: pieData, backgroundColor: pieColors, borderWidth: 2, hoverBorderWidth: 3, hoverOffset: 18, offset: pieData.map(() => 0) }] },
     options: {
       responsive: true, maintainAspectRatio: false,
       interaction: { mode: 'nearest', intersect: true },
+      onClick: (evt, elements) => { if (elements.length > 0) toggleDoughnutSegment(chartPie, elements[0].index); },
       plugins: {
         legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 10 }, padding: 12 } },
         tooltip: {
