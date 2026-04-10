@@ -677,14 +677,46 @@ function addMonth(name) {
   name = name.trim();
   if (state.months[name]) { showToast('Ya existe un mes con ese nombre'); return; }
 
+  // Find the most recent month to carry over fixed expenses
+  const monthKeys = Object.keys(state.months);
+  const lastMonth = monthKeys.length > 0 ? state.months[monthKeys[monthKeys.length - 1]] : null;
+
+  // Collect fixed expenses from last month (with dueDay) to preload
+  const fixedExpenses = [];
+  if (lastMonth && lastMonth.expense) {
+    // Determine if this is an even month for bimensual filtering
+    const monthNames = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+    const monthIdx = monthNames.findIndex(m => name.toLowerCase().includes(m));
+    const isEvenMonth = monthIdx >= 0 ? (monthIdx + 1) % 2 === 0 : true;
+
+    const seen = new Set();
+    lastMonth.expense.forEach(row => {
+      if (row.group !== 'fijos' || !row.dueDay) return;
+      if (seen.has(row.name)) return;
+      seen.add(row.name);
+      const freq = row.dueFreq || 'mensual';
+      if (freq === 'bimensual' && !isEvenMonth) return;
+      fixedExpenses.push({
+        name: row.name, value: '', who: row.who || '', commerce: row.commerce || '',
+        paymentMethod: row.paymentMethod || '', group: 'fijos', belongsTo: row.belongsTo || '',
+        dueDay: row.dueDay, dueFreq: row.dueFreq || 'mensual', date: ''
+      });
+    });
+  }
+
+  // Default rows + fixed expenses (avoid duplicates)
+  const defaultExpenses = _getDefaultRows('expense').map(n => ({ name: n, value: '', who: '', commerce: '', paymentMethod: '', group: '', dueDay: 0, dueFreq: '' }));
+  const fixedNames = new Set(fixedExpenses.map(r => r.name));
+  const filteredDefaults = defaultExpenses.filter(r => !fixedNames.has(r.name));
+
   state.months[name] = {
     income:  _getDefaultRows('income').map(n  => ({ name: n, value: '', who: '' })),
-    expense: _getDefaultRows('expense').map(n => ({ name: n, value: '', who: '', commerce: '', paymentMethod: '', group: '' }))
+    expense: [...fixedExpenses, ...filteredDefaults]
   };
   currentMonth = name;
   saveState();
   renderAll();
-  showToast('Mes "' + name + '" agregado');
+  showToast('Mes "' + name + '" agregado' + (fixedExpenses.length > 0 ? ' — ' + fixedExpenses.length + ' gasto(s) fijo(s) precargado(s)' : ''));
 }
 
 function switchMonth(name) {
