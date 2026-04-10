@@ -1443,6 +1443,7 @@ function renderPersonaCharts(monthKeys) {
     const avgMonthly = monthCount > 0 ? totalExpense / monthCount : 0;
     const savingsRate = totalIncome > 0 ? ((totalIncome - totalExpense) / totalIncome * 100) : NaN;
     topExpenses.sort((a, b) => b.value - a.value);
+    const hintDismissed = localStorage.getItem('hint_subcat_dismissed');
 
     // Category bars
     const maxGroupVal = sortedGroups.length > 0 ? sortedGroups[0][1].total : 0;
@@ -1475,7 +1476,10 @@ function renderPersonaCharts(monthKeys) {
       <div class="persona-collapse-toggle" data-target="persona-cat-list" style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-soft);margin-bottom:0.4rem;cursor:pointer;user-select:none;">
         <span class="collapse-arrow" style="display:inline-block;transition:transform 0.2s;margin-right:0.3rem;">▶</span>Distribución por categoría
       </div>
-      <div id="persona-cat-list" style="display:none;">${categoryBars}</div>
+      <div id="persona-cat-list" style="display:none;">
+        ${!hintDismissed ? '<div id="persona-subcat-hint" style="font-size:0.68rem;color:var(--text-soft);opacity:0.7;margin-bottom:0.4rem;">Tocá una categoría para verla en el gráfico</div>' : ''}
+        ${categoryBars}
+      </div>
       ${topExpenses.length > 0 ? `
         <div class="persona-collapse-toggle" data-target="persona-top-list" style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-soft);margin:0.75rem 0 0.4rem;cursor:pointer;user-select:none;">
           <span class="collapse-arrow" style="display:inline-block;transition:transform 0.2s;margin-right:0.3rem;">▶</span>🔝 Mayores gastos (${topExpenses.length})
@@ -1496,6 +1500,8 @@ function renderPersonaCharts(monthKeys) {
       bar.addEventListener('click', function() {
         const idx = parseInt(this.getAttribute('data-idx'));
         if (personaChartPie) toggleDoughnutSegment(personaChartPie, idx);
+        const hint = document.getElementById('persona-subcat-hint');
+        if (hint) { hint.style.opacity = '0'; setTimeout(() => hint.remove(), 500); localStorage.setItem('hint_subcat_dismissed', '1'); }
       });
     });
 
@@ -1982,10 +1988,12 @@ function updateInsightCards() {
     const sortedGroups = Object.entries(ins.groupTotals).sort((a, b) => b[1] - a[1]);
     if (sortedGroups.length > 0) {
       const maxVal = sortedGroups[0][1];
+      const hintDismissed = localStorage.getItem('hint_subcat_dismissed');
       groupWrap.innerHTML = `
-        <div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-soft);margin-bottom:0.55rem;">
+        <div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-soft);margin-bottom:0.25rem;">
           Egresos por subcategoría
         </div>
+        ${!hintDismissed ? '<div id="subcat-hint" style="font-size:0.68rem;color:var(--text-soft);opacity:0.7;margin-bottom:0.5rem;transition:opacity 0.5s;">Tocá una categoría para explorarla en el gráfico</div>' : ''}
         ${sortedGroups.map(([g, val]) => {
           const info = getEffectiveGroups()[g] || EXPENSE_GROUPS[''];
           const pct  = maxVal > 0 ? Math.round((val / maxVal) * 100) : 0;
@@ -2007,6 +2015,8 @@ function updateInsightCards() {
           const label = this.getAttribute('data-group-label');
           const idx = chartPie.data.labels.indexOf(label);
           if (idx >= 0) toggleDoughnutSegment(chartPie, idx);
+          const hint = document.getElementById('subcat-hint');
+          if (hint) { hint.style.opacity = '0'; setTimeout(() => hint.remove(), 500); localStorage.setItem('hint_subcat_dismissed', '1'); }
         });
       });
     } else {

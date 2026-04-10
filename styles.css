@@ -1408,3 +1408,23 @@ tr:hover .btn-del { opacity: 1; }
   background: var(--bg-2);
   border-color: var(--primary);
 }
+
+/* Interactive category bars */
+.group-bar-click {
+  transition: background 0.15s, transform 0.15s;
+  border-radius: 6px;
+  padding: 2px 4px;
+}
+.group-bar-click:hover {
+  background: var(--bg-2);
+  transform: translateX(3px);
+}
+.persona-insight-bar {
+  transition: background 0.15s, transform 0.15s;
+  border-radius: 6px;
+  padding: 2px 4px;
+}
+.persona-insight-bar:hover {
+  background: var(--bg-2);
+  transform: translateX(3px);
+}
