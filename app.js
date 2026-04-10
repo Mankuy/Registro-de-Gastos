@@ -1421,7 +1421,7 @@ function renderPersonaCharts(monthKeys) {
         responsive: true, maintainAspectRatio: false,
         onClick: (evt, elements) => { if (elements.length > 0) toggleDoughnutSegment(personaChartPie, elements[0].index); },
         plugins: {
-          legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 10 }, padding: 12 } },
+          legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 13 }, padding: 14 } },
           tooltip: {
             padding: 10, cornerRadius: 8, titleFont: { size: 13, weight: 'bold' }, bodyFont: { size: 12 }, boxPadding: 4,
             callbacks: {
@@ -2039,9 +2039,19 @@ function renderCharts() {
 
   const month       = state.months[currentMonth];
   const expenseRows = month.expense.filter(r => parseFloat(r.value) > 0);
-  const pieLabels   = expenseRows.map(r => r.name);
-  const pieData     = expenseRows.map(r => parseFloat(r.value));
-  const pieColors   = expenseRows.map((_, i) => CHART_COLORS[i % CHART_COLORS.length]);
+
+  // Aggregate by group/category
+  const groups = getEffectiveGroups();
+  const groupAgg = {};
+  expenseRows.forEach(r => {
+    const grp = r.group || '';
+    const label = (groups[grp] && groups[grp].label) || 'Sin categoría';
+    groupAgg[label] = (groupAgg[label] || 0) + parseFloat(r.value);
+  });
+  const sortedEntries = Object.entries(groupAgg).sort((a, b) => b[1] - a[1]);
+  const pieLabels = sortedEntries.map(([k]) => k);
+  const pieData   = sortedEntries.map(([, v]) => v);
+  const pieColors = pieLabels.map((_, i) => CHART_COLORS[i % CHART_COLORS.length]);
 
   chartPie = new Chart(canvasPie, {
     type: 'doughnut',
