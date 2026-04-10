@@ -1336,7 +1336,10 @@ function renderPorPersona() {
       <div class="section-header"><div class="section-title">📊 Gráficos</div></div>
       <div class="section-body" style="padding:0.75rem;">
         <div style="display:flex;flex-wrap:wrap;gap:1rem;justify-content:center;align-items:flex-start;">
-          <div style="flex:1;min-width:250px;max-width:400px;height:280px;"><canvas id="persona-chart-pie"></canvas></div>
+          <div style="flex:1;min-width:250px;max-width:400px;">
+            ${!localStorage.getItem('hint_legend_dismissed') ? '<div class="legend-hint" style="font-size:0.68rem;color:var(--text-soft);opacity:0.5;text-align:center;margin-bottom:0.3rem;transition:opacity 0.5s;">Tocá un nombre en la leyenda para ocultarlo</div>' : ''}
+            <div style="height:280px;"><canvas id="persona-chart-pie"></canvas></div>
+          </div>
           <div id="persona-insights" style="flex:1;min-width:250px;max-width:400px;"></div>
         </div>
       </div>
@@ -1421,7 +1424,7 @@ function renderPersonaCharts(monthKeys) {
         responsive: true, maintainAspectRatio: false,
         onClick: (evt, elements) => { if (elements.length > 0) toggleDoughnutSegment(personaChartPie, elements[0].index); },
         plugins: {
-          legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 13 }, padding: 14 } },
+          legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 13 }, padding: 14 }, onClick: function(e, item, legend) { Chart.defaults.plugins.legend.onClick.call(this, e, item, legend); dismissLegendHint(); } },
           tooltip: {
             padding: 10, cornerRadius: 8, titleFont: { size: 13, weight: 'bold' }, bodyFont: { size: 12 }, boxPadding: 4,
             callbacks: {
@@ -1477,7 +1480,7 @@ function renderPersonaCharts(monthKeys) {
         <span class="collapse-arrow" style="display:inline-block;transition:transform 0.2s;margin-right:0.3rem;">▶</span>Distribución por categoría
       </div>
       <div id="persona-cat-list" style="display:none;">
-        ${!hintDismissed ? '<div id="persona-subcat-hint" style="font-size:0.68rem;color:var(--text-soft);opacity:0.7;margin-bottom:0.4rem;">Tocá una categoría para verla en el gráfico</div>' : ''}
+        ${!hintDismissed ? '<div id="persona-subcat-hint" style="font-size:0.68rem;color:var(--text-soft);opacity:0.5;margin-bottom:0.4rem;transition:opacity 0.5s;">Tocá una categoría para verla en el gráfico</div>' : ''}
         ${categoryBars}
       </div>
       ${topExpenses.length > 0 ? `
@@ -1609,6 +1612,7 @@ function renderMain() {
         <div class="charts-grid">
           <div class="chart-wrap">
             <h4>Egresos por categoría</h4>
+            ${!localStorage.getItem('hint_legend_dismissed') ? '<div class="legend-hint" style="font-size:0.68rem;color:var(--text-soft);opacity:0.5;text-align:center;margin-bottom:0.3rem;transition:opacity 0.5s;">Tocá un nombre en la leyenda para ocultarlo</div>' : ''}
             <div class="chart-container"><canvas id="chart-pie"></canvas></div>
           </div>
           <div class="chart-wrap">
@@ -1993,7 +1997,7 @@ function updateInsightCards() {
         <div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-soft);margin-bottom:0.25rem;">
           Egresos por subcategoría
         </div>
-        ${!hintDismissed ? '<div id="subcat-hint" style="font-size:0.68rem;color:var(--text-soft);opacity:0.7;margin-bottom:0.5rem;transition:opacity 0.5s;">Tocá una categoría para explorarla en el gráfico</div>' : ''}
+        ${!hintDismissed ? '<div id="subcat-hint" style="font-size:0.68rem;color:var(--text-soft);opacity:0.5;margin-bottom:0.5rem;transition:opacity 0.5s;">Tocá una categoría para explorarla en el gráfico</div>' : ''}
         ${sortedGroups.map(([g, val]) => {
           const info = getEffectiveGroups()[g] || EXPENSE_GROUPS[''];
           const pct  = maxVal > 0 ? Math.round((val / maxVal) * 100) : 0;
@@ -2031,6 +2035,11 @@ function updateInsightCards() {
 
 let chartPie = null;
 let chartBar = null;
+
+function dismissLegendHint() {
+  document.querySelectorAll('.legend-hint').forEach(h => { h.style.opacity = '0'; setTimeout(() => h.remove(), 500); });
+  localStorage.setItem('hint_legend_dismissed', '1');
+}
 
 function toggleDoughnutSegment(chart, idx) {
   const ds = chart.data.datasets[0];
@@ -2085,7 +2094,7 @@ function renderCharts() {
       interaction: { mode: 'nearest', intersect: true },
       onClick: (evt, elements) => { if (elements.length > 0) toggleDoughnutSegment(chartPie, elements[0].index); },
       plugins: {
-        legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 13 }, padding: 14 } },
+        legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 13 }, padding: 14 }, onClick: function(e, item, legend) { Chart.defaults.plugins.legend.onClick.call(this, e, item, legend); dismissLegendHint(); } },
         tooltip: {
           enabled: true, padding: 10, cornerRadius: 8,
           titleFont: { size: 13, weight: 'bold' }, bodyFont: { size: 12 },
