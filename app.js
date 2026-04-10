@@ -2027,7 +2027,12 @@ function toggleDoughnutSegment(chart, idx) {
   const offsets = ds.offset;
   const isActive = offsets[idx] > 0;
   for (let i = 0; i < offsets.length; i++) offsets[i] = 0;
-  if (!isActive) offsets[idx] = 28;
+  if (!isActive) {
+    offsets[idx] = 28;
+    chart.tooltip.setActiveElements([{ datasetIndex: 0, index: idx }], { x: 0, y: 0 });
+  } else {
+    chart.tooltip.setActiveElements([], { x: 0, y: 0 });
+  }
   chart.update();
 }
 
