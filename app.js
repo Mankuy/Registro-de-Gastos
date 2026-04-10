@@ -1990,7 +1990,7 @@ function updateInsightCards() {
           const info = getEffectiveGroups()[g] || EXPENSE_GROUPS[''];
           const pct  = maxVal > 0 ? Math.round((val / maxVal) * 100) : 0;
           return `
-            <div style="display:flex;align-items:center;gap:0.6rem;margin-bottom:0.38rem;">
+            <div class="group-bar-click" data-group-label="${esc(info.label)}" style="display:flex;align-items:center;gap:0.6rem;margin-bottom:0.38rem;cursor:pointer;">
               <span style="font-size:0.85rem;width:1.3rem;text-align:center;flex-shrink:0;">${info.emoji}</span>
               <span style="font-size:0.78rem;min-width:72px;color:var(--text);font-weight:500;">${esc(info.label)}</span>
               <div style="flex:1;height:7px;background:var(--border);border-radius:4px;overflow:hidden;">
@@ -2000,6 +2000,15 @@ function updateInsightCards() {
             </div>`;
         }).join('')}
       `;
+      // Click on group bar → explode doughnut segment
+      groupWrap.querySelectorAll('.group-bar-click').forEach(bar => {
+        bar.addEventListener('click', function() {
+          if (!chartPie) return;
+          const label = this.getAttribute('data-group-label');
+          const idx = chartPie.data.labels.indexOf(label);
+          if (idx >= 0) toggleDoughnutSegment(chartPie, idx);
+        });
+      });
     } else {
       groupWrap.innerHTML = '';
     }
@@ -2061,7 +2070,7 @@ function renderCharts() {
       interaction: { mode: 'nearest', intersect: true },
       onClick: (evt, elements) => { if (elements.length > 0) toggleDoughnutSegment(chartPie, elements[0].index); },
       plugins: {
-        legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 10 }, padding: 12 } },
+        legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 13 }, padding: 14 } },
         tooltip: {
           enabled: true, padding: 10, cornerRadius: 8,
           titleFont: { size: 13, weight: 'bold' }, bodyFont: { size: 12 },
