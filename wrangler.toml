@@ -1,6 +1,27 @@
 name = "soft-base-c19e"
 main = "cloudflare-worker.js"
-compatibility_date = "2024-01-01"
+compatibility_date = "2026-03-28"
+preview_urls = false
+
+[observability]
+enabled = true
+
+[observability.logs]
+enabled = true
+
+[vars]
+FIREBASE_PROJECT = "registro-gastos-8a864"
+FIREBASE_EMAIL = "familia@gestor.hogar.app"
+FIREBASE_USER_ID = "AyiBoIPjpNOOM5Xp7yrGMCJZwL82"
+# Emails para recordatorios de vencimiento
+REMINDER_EMAILS = "facundo.galetta@gmail.com,lgulisanosaris@gmail.com"
+
+# IMPORTANTE: Los secrets (BOT_TOKEN, FIREBASE_PASSWORD, FIREBASE_API_KEY,
+# CLAUDE_API_KEY) NO van aquí. Configuralos con:
+#   npx wrangler secret put BOT_TOKEN
+#   npx wrangler secret put FIREBASE_PASSWORD
+#   npx wrangler secret put FIREBASE_API_KEY
+#   npx wrangler secret put CLAUDE_API_KEY
 
 [triggers]
 crons = ["0 12 * * *"]
