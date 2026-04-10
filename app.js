@@ -85,18 +85,16 @@ const CHART_COLORS = [
 
 // Grupos de subcategorías de egresos
 const EXPENSE_GROUPS = {
-  '':       { label: '',          emoji: '○',   title: 'Sin grupo — clic para asignar' },
-  fijos:    { label: 'Fijos',     emoji: '🏠',  title: 'Gastos Fijos' },
-  comida:   { label: 'Comida',    emoji: '🛒',  title: 'Compras / Comida' },
-  afuera:   { label: 'Afuera',    emoji: '🍽️',  title: 'Comida Afuera' },
-  animales: { label: 'Animales',  emoji: '🐾',  title: 'Animales' },
-  ninos:    { label: 'Niñxs',     emoji: '👶',  title: 'Gastos en Niñxs' },
-  salud:    { label: 'Salud',     emoji: '💊',  title: 'Salud' },
-  vehiculo: { label: 'Vehículo',  emoji: '🚗',  title: 'Vehículo' },
-  ocio:     { label: 'Ocio',      emoji: '🎭',  title: 'Ocio y Entretenimiento' },
-  otros:    { label: 'Otros',     emoji: '📦',  title: 'Otros' }
+  '':             { label: '',              emoji: '○',   title: 'Sin grupo — clic para asignar' },
+  fijos:          { label: 'Gastos Fijos',  emoji: '🏠',  title: 'Gastos Fijos (detallados)' },
+  comida:         { label: 'Comida',        emoji: '🛒',  title: 'Comida' },
+  farmacia:       { label: 'Farmacia',      emoji: '💊',  title: 'Farmacia' },
+  personal_facu:  { label: 'Personal Facu', emoji: '👤',  title: 'Personal Facu' },
+  personal_lu:    { label: 'Personal Lu',   emoji: '👤',  title: 'Personal Lu' },
+  personal_fran:  { label: 'Personal Fran', emoji: '👤',  title: 'Personal Fran' },
+  casa:           { label: 'Casa',          emoji: '🏡',  title: 'Casa' }
 };
-const GROUP_ORDER = ['', 'fijos', 'comida', 'afuera', 'animales', 'ninos', 'salud', 'vehiculo', 'ocio', 'otros'];
+const GROUP_ORDER = ['', 'fijos', 'comida', 'farmacia', 'personal_facu', 'personal_lu', 'personal_fran', 'casa'];
 
 function getEffectiveGroups() {
   const custom = (state && state.customGroups) ? state.customGroups : [];
@@ -1334,6 +1332,15 @@ function renderPorPersona() {
         </div>
       </div>
     </div>
+    <div class="section-card" style="margin-bottom:1rem;">
+      <div class="section-header"><div class="section-title">📊 Gráficos</div></div>
+      <div class="section-body" style="padding:0.75rem;">
+        <div style="display:flex;flex-wrap:wrap;gap:1rem;justify-content:center;">
+          <div style="flex:1;min-width:250px;max-width:400px;height:280px;"><canvas id="persona-chart-pie"></canvas></div>
+          <div style="flex:1;min-width:250px;max-width:400px;height:280px;"><canvas id="persona-chart-bar"></canvas></div>
+        </div>
+      </div>
+    </div>
     ${monthCards || '<div class="section-card"><div class="section-body"><p style="text-align:center;color:var(--text-soft);padding:2rem;">No hay movimientos para ' + esc(porPersonaSelected) + '</p></div></div>'}
   `;
 
@@ -1344,6 +1351,106 @@ function renderPorPersona() {
       renderPorPersona();
     });
   });
+
+  // Render persona charts
+  renderPersonaCharts(monthKeys);
+}
+
+let personaChartPie = null, personaChartBar = null;
+function destroyPersonaCharts() {
+  if (personaChartPie) { personaChartPie.destroy(); personaChartPie = null; }
+  if (personaChartBar) { personaChartBar.destroy(); personaChartBar = null; }
+}
+
+function renderPersonaCharts(monthKeys) {
+  if (typeof Chart === 'undefined') return;
+  destroyPersonaCharts();
+
+  const canvasPie = document.getElementById('persona-chart-pie');
+  const canvasBar = document.getElementById('persona-chart-bar');
+  if (!canvasPie || !canvasBar) return;
+
+  // Aggregate expenses by group across all months for this persona
+  const groupTotals = {};
+  const monthTotals = {};
+
+  const matchesPersona = (r) => {
+    const bt = (r.belongsTo || '').trim();
+    const who = (r.who || '').trim();
+    if (porPersonaSelected === 'Hogar') return bt === 'Hogar' || (bt === '' && who === '');
+    return bt === porPersonaSelected || (bt === '' && who === porPersonaSelected) || (bt === 'Hogar' && who === porPersonaSelected);
+  };
+
+  const groups = getEffectiveGroups();
+  monthKeys.forEach(mk => {
+    const monthData = state.months[mk];
+    const expRows = monthData.expense.filter(matchesPersona);
+    let monthTotal = 0;
+    expRows.forEach(r => {
+      const val = parseFloat(r.value) || 0;
+      if (val <= 0) return;
+      monthTotal += val;
+      const grp = r.group || '';
+      const label = (groups[grp] && groups[grp].label) || r.name || 'Otros';
+      groupTotals[label] = (groupTotals[label] || 0) + val;
+    });
+    if (monthTotal > 0) monthTotals[mk] = monthTotal;
+  });
+
+  // Doughnut: expense by group
+  const pieLabels = Object.keys(groupTotals);
+  const pieData = Object.values(groupTotals);
+  const pieColors = pieLabels.map((_, i) => CHART_COLORS[i % CHART_COLORS.length]);
+
+  if (pieData.length > 0) {
+    personaChartPie = new Chart(canvasPie, {
+      type: 'doughnut',
+      data: { labels: pieLabels, datasets: [{ data: pieData, backgroundColor: pieColors, borderWidth: 2, hoverBorderWidth: 3, hoverOffset: 18 }] },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 10 }, padding: 12 } },
+          tooltip: {
+            padding: 10, cornerRadius: 8, titleFont: { size: 13, weight: 'bold' }, bodyFont: { size: 12 }, boxPadding: 4,
+            callbacks: {
+              label: (ctx) => {
+                const total = ctx.dataset.data.reduce((a, b) => a + b, 0);
+                const pct = total > 0 ? ((ctx.parsed / total) * 100).toFixed(1) : 0;
+                return ' ' + ctx.label + ': $' + ctx.parsed.toLocaleString('es-UY') + ' (' + pct + '%)';
+              }
+            }
+          }
+        }
+      }
+    });
+  }
+
+  // Bar: expense by month
+  const barLabels = Object.keys(monthTotals);
+  const barData = Object.values(monthTotals);
+  const barColors = barLabels.map((_, i) => CHART_COLORS[i % CHART_COLORS.length]);
+
+  if (barData.length > 0) {
+    personaChartBar = new Chart(canvasBar, {
+      type: 'bar',
+      data: { labels: barLabels, datasets: [{ data: barData, backgroundColor: barColors, borderRadius: 6 }] },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        interaction: { mode: 'nearest', intersect: true },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            padding: 10, cornerRadius: 8, titleFont: { size: 13, weight: 'bold' }, bodyFont: { size: 12 },
+            callbacks: { label: (ctx) => ' $' + ctx.parsed.y.toLocaleString('es-UY') }
+          }
+        },
+        scales: {
+          x: { grid: { display: false }, ticks: { font: { size: 10 } } },
+          y: { grid: { display: false }, ticks: { callback: (val) => '$' + val.toLocaleString('es-UY'), font: { size: 10 } } }
+        }
+      }
+    });
+  }
 }
 
 // ════════════════════════════════════════════════════════════
@@ -1868,12 +1975,24 @@ function renderCharts() {
 
   chartPie = new Chart(canvasPie, {
     type: 'doughnut',
-    data: { labels: pieLabels, datasets: [{ data: pieData, backgroundColor: pieColors, borderWidth: 1 }] },
+    data: { labels: pieLabels, datasets: [{ data: pieData, backgroundColor: pieColors, borderWidth: 2, hoverBorderWidth: 3, hoverOffset: 18 }] },
     options: {
       responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'nearest', intersect: true },
       plugins: {
-        legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 10 } } },
-        tooltip: { callbacks: { label: (ctx) => ' ' + ctx.label + ': $' + ctx.parsed.toLocaleString('es-UY') } }
+        legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 10 }, padding: 12 } },
+        tooltip: {
+          enabled: true, padding: 10, cornerRadius: 8,
+          titleFont: { size: 13, weight: 'bold' }, bodyFont: { size: 12 },
+          displayColors: true, boxPadding: 4,
+          callbacks: {
+            label: (ctx) => {
+              const total = ctx.dataset.data.reduce((a, b) => a + b, 0);
+              const pct = total > 0 ? ((ctx.parsed / total) * 100).toFixed(1) : 0;
+              return ' ' + ctx.label + ': $' + ctx.parsed.toLocaleString('es-UY') + ' (' + pct + '%)';
+            }
+          }
+        }
       }
     }
   });
@@ -1892,14 +2011,26 @@ function renderCharts() {
   state.members.forEach(m => { if (memberMap[m] > 0) { barLabels.push(m); barData.push(memberMap[m]); } });
   if (unassigned > 0) { barLabels.push('Sin asignar'); barData.push(unassigned); }
 
+  const barColors = barLabels.map((_, i) => CHART_COLORS[i % CHART_COLORS.length]);
   chartBar = new Chart(canvasBar, {
     type: 'bar',
-    data: { labels: barLabels, datasets: [{ data: barData, backgroundColor: CHART_COLORS[0], borderRadius: 4 }] },
+    data: { labels: barLabels, datasets: [{ data: barData, backgroundColor: barColors, hoverBackgroundColor: barColors.map(c => c + 'cc'), borderRadius: 6 }] },
     options: {
       indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'nearest', intersect: true },
       plugins: {
         legend: { display: false },
-        tooltip: { callbacks: { label: (ctx) => ' $' + ctx.parsed.x.toLocaleString('es-UY') } }
+        tooltip: {
+          enabled: true, padding: 10, cornerRadius: 8,
+          titleFont: { size: 13, weight: 'bold' }, bodyFont: { size: 12 },
+          callbacks: {
+            label: (ctx) => {
+              const total = ctx.dataset.data.reduce((a, b) => a + b, 0);
+              const pct = total > 0 ? ((ctx.parsed.x / total) * 100).toFixed(1) : 0;
+              return ' $' + ctx.parsed.x.toLocaleString('es-UY') + ' (' + pct + '%)';
+            }
+          }
+        }
       },
       scales: {
         x: { grid: { display: false }, ticks: { callback: (val) => '$' + val.toLocaleString('es-UY'), font: { size: 10 } } },
