@@ -282,7 +282,8 @@ body {
   overflow-x: auto;
   display: flex;
   align-items: center;
-  padding: 0 1rem;
+  padding: 0.5rem 1rem;
+  margin-top: 0.5rem;
   gap: 0.25rem;
   scrollbar-width: none;
   -ms-overflow-style: none;
