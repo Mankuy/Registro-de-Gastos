@@ -2831,7 +2831,8 @@ function openGroupsModal() {
     '☕','🍺','🍕','🏥','⛽','🔧','🌱','🎂','💡','📺','🏖️','🎄',
     '💵','💴','💶','💷','🪙','💸','🏦','💎','📈','📉','🧾','🧮',
     '🚕','🚌','🚆','🛵','🚲','⛵','🏍️','🚢','🛴','🛻','🅿️','🛣️',
-    '🍎','🥖','🥚','🥛','🍗','🍷','🍔','🍣','🥗','🍦','🧁','🌮'
+    '🍎','🥖','🥚','🥛','🍗','🍷','🍔','🍣','🥗','🍦','🧁','🌮',
+    '🧔🏻‍♂️','🙍🏻‍♀️','👨‍👩‍👧','👩','🧔','👤'
   ];
 
   function emojiBtn(onclickExpr, current) {
@@ -2841,26 +2842,33 @@ function openGroupsModal() {
   }
 
   function renderGroupsBody() {
-    const custom = state.customGroups;
+    const effective = getEffectiveGroups();
     const openIdx = window._emojiPickerOpen;
-    const rows = custom.length === 0
-      ? `<p style="color:var(--text-soft);font-size:0.85rem;">No hay grupos personalizados aún.</p>`
-      : custom.map((g, i) => `
-          <div style="margin-bottom:0.4rem;">
-            <div style="display:flex;align-items:center;gap:0.4rem;">
-              <button type="button" onclick="toggleEmojiPicker(${i})"
-                style="width:2.8rem;height:2.2rem;text-align:center;font-size:1.2rem;background:var(--bg);border:1px solid var(--border);border-radius:6px;cursor:pointer;">${esc(g.emoji || '🏷️')}</button>
-              <input type="text" maxlength="20" value="${esc(g.label)}"
-                style="flex:1;font-size:0.9rem;"
-                onchange="updateCustomGroup(${i},'label',this.value)" />
-              <button class="btn-cancel" style="padding:2px 8px;font-size:0.78rem;" onclick="deleteCustomGroup(${i})">✕</button>
-            </div>
-            ${openIdx === i ? `<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px;padding:6px;background:var(--bg-soft,rgba(0,0,0,0.15));border-radius:6px;">${emojiBtn("updateCustomGroup("+i+",'emoji','__E__')", g.emoji)}</div>` : ''}
-          </div>`).join('');
+
+    // Show ALL groups (built-in + custom)
+    const allKeys = GROUP_ORDER.filter(k => k !== '');
+    const rows = allKeys.map(key => {
+      const g = effective[key] || EXPENSE_GROUPS[key];
+      if (!g) return '';
+      const isCustom = key.startsWith('custom_');
+      return `
+        <div style="margin-bottom:0.4rem;">
+          <div style="display:flex;align-items:center;gap:0.4rem;">
+            <button type="button" onclick="toggleEmojiPicker('${key}')"
+              style="width:2.8rem;height:2.2rem;text-align:center;font-size:1.2rem;background:var(--bg);border:1px solid var(--border);border-radius:6px;cursor:pointer;">${esc(g.emoji || '🏷️')}</button>
+            <input type="text" maxlength="20" value="${esc(g.label)}"
+              style="flex:1;font-size:0.9rem;"
+              onchange="updateAnyGroup('${key}','label',this.value)" />
+            ${isCustom ? `<button class="btn-cancel" style="padding:2px 8px;font-size:0.78rem;" onclick="deleteCustomGroupByKey('${key}')">✕</button>` : ''}
+          </div>
+          ${openIdx === key ? `<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px;padding:6px;background:var(--bg-soft,rgba(0,0,0,0.15));border-radius:6px;">${emojiBtn("updateAnyGroup('"+key+"','emoji','__E__')", g.emoji)}</div>` : ''}
+        </div>`;
+    }).join('');
+
     const openNew = window._emojiPickerOpen === 'new';
     const newEmoji = window._newGroupEmoji || '🏷️';
     return `
-      <div id="custom-groups-list" style="margin-bottom:1rem;">${rows}</div>
+      <div id="custom-groups-list" style="margin-bottom:1rem;max-height:50vh;overflow-y:auto;">${rows}</div>
       <hr style="margin:0.75rem 0;border-color:var(--border);">
       <p style="font-size:0.82rem;color:var(--text-soft);margin-bottom:0.5rem;">Agregar grupo nuevo:</p>
       <div style="display:flex;gap:0.4rem;align-items:center;">
@@ -2883,6 +2891,40 @@ function openGroupsModal() {
     document.getElementById('modal-body').innerHTML = renderGroupsBody();
   };
 }
+
+// Update any group (built-in or custom) — stores overrides in customGroups
+window.updateAnyGroup = function(key, field, value) {
+  if (!state.customGroups) state.customGroups = [];
+  const v = (value || '').trim();
+  if (EXPENSE_GROUPS[key]) {
+    let override = state.customGroups.find(g => g.key === key);
+    if (!override) {
+      override = { key, label: EXPENSE_GROUPS[key].label, emoji: EXPENSE_GROUPS[key].emoji };
+      state.customGroups.push(override);
+    }
+    if (field === 'label' && v) override.label = v;
+    else if (field === 'emoji') override.emoji = v || '🏷️';
+  } else {
+    const idx = state.customGroups.findIndex(g => g.key === key);
+    if (idx >= 0) {
+      if (field === 'label' && v) state.customGroups[idx].label = v;
+      else if (field === 'emoji') state.customGroups[idx].emoji = v || '🏷️';
+    }
+  }
+  window._emojiPickerOpen = null;
+  saveState();
+  if (window._refreshGroupsModal) window._refreshGroupsModal();
+  renderMain();
+};
+
+window.deleteCustomGroupByKey = function(key) {
+  if (!state.customGroups) return;
+  state.customGroups = state.customGroups.filter(g => g.key !== key);
+  const idx = GROUP_ORDER.indexOf(key);
+  if (idx >= 0) GROUP_ORDER.splice(idx, 1);
+  saveState();
+  if (window._refreshGroupsModal) window._refreshGroupsModal();
+};
 
 window.toggleEmojiPicker = function(i) {
   window._emojiPickerOpen = (window._emojiPickerOpen === i) ? null : i;
