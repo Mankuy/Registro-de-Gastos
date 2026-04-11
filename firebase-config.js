@@ -1,5 +1,5 @@
 const firebaseConfig = {
-  apiKey: "AIzaSyBqunzevnZjdPEFVTgL6TupBiAQhS_h88g",
+  apiKey: "AIzaSyDFCba95ny7I2HAA2KVm8IQgzgq-YkLJ0o",
   authDomain: "registro-gastos-8a864.firebaseapp.com",
   projectId: "registro-gastos-8a864",
   storageBucket: "registro-gastos-8a864.firebasestorage.app",

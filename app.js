@@ -677,56 +677,64 @@ function addMonth(name) {
   name = name.trim();
   if (state.months[name]) { showToast('Ya existe un mes con ese nombre'); return; }
 
-  // Find the most recent month to carry over fixed expenses
+  // Find the most recent month to carry over ALL categories
   const monthKeys = Object.keys(state.months);
   const lastMonth = monthKeys.length > 0 ? state.months[monthKeys[monthKeys.length - 1]] : null;
 
-  // Collect fixed expenses from last month (with dueDay) to preload
-  const fixedExpenses = [];
+  // Copy ALL expense categories from last month (clearing values)
+  // Fixed expenses (group='fijos' with dueDay) keep ALL metadata except the value
+  const newExpenses = [];
+  const seen = new Set();
+
   if (lastMonth && lastMonth.expense) {
     // Determine if this is an even month for bimensual filtering
     const monthNames = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
     const monthIdx = monthNames.findIndex(m => name.toLowerCase().includes(m));
     const isEvenMonth = monthIdx >= 0 ? (monthIdx + 1) % 2 === 0 : true;
 
-    const seen = new Set();
     lastMonth.expense.forEach(row => {
-      if (row.group !== 'fijos' || !row.dueDay) return;
-      if (seen.has(row.name)) return;
+      if (!row.name || seen.has(row.name)) return;
+      // Skip bimensual expenses on odd months
+      if (row.dueFreq === 'bimensual' && !isEvenMonth) return;
       seen.add(row.name);
-      const freq = row.dueFreq || 'mensual';
-      if (freq === 'bimensual' && !isEvenMonth) return;
-      fixedExpenses.push({
-        name: row.name, value: '', who: row.who || '', commerce: row.commerce || '',
-        paymentMethod: row.paymentMethod || '', group: 'fijos', belongsTo: row.belongsTo || '',
-        dueDay: row.dueDay, dueFreq: row.dueFreq || 'mensual', date: ''
+
+      const isFixed = row.group === 'fijos' && row.dueDay;
+      newExpenses.push({
+        name: row.name,
+        value: '',  // Always clear the amount
+        who: row.who || '',
+        commerce: row.commerce || '',
+        paymentMethod: row.paymentMethod || '',
+        group: row.group || '',
+        belongsTo: row.belongsTo || '',
+        // Fixed expenses keep their scheduling metadata
+        dueDay: isFixed ? row.dueDay : 0,
+        dueFreq: isFixed ? (row.dueFreq || 'mensual') : '',
+        date: ''
       });
     });
   }
 
-  // Default rows + fixed expenses (avoid duplicates)
-  const defaultExpenses = _getDefaultRows('expense').map(n => ({ name: n, value: '', who: '', commerce: '', paymentMethod: '', group: 'fijos', dueDay: 0, dueFreq: '' }));
-  const fixedNames = new Set(fixedExpenses.map(r => r.name));
-  const filteredDefaults = defaultExpenses.filter(r => !fixedNames.has(r.name));
+  // Copy income categories from last month too
+  let newIncome;
+  if (lastMonth && lastMonth.income && lastMonth.income.length) {
+    const seenIncome = new Set();
+    newIncome = [];
+    lastMonth.income.forEach(row => {
+      if (!row.name || seenIncome.has(row.name)) return;
+      seenIncome.add(row.name);
+      newIncome.push({ name: row.name, value: '', who: row.who || '' });
+    });
+  } else {
+    newIncome = _getDefaultRows('income').map(n => ({ name: n, value: '', who: '' }));
+  }
 
-  // Preload empty rows for each category group
-  const categoryStubs = [
-    { name: '', value: '', who: '', commerce: '', paymentMethod: '', group: 'comida', dueDay: 0, dueFreq: '', belongsTo: 'Hogar' },
-    { name: '', value: '', who: '', commerce: '', paymentMethod: '', group: 'farmacia', dueDay: 0, dueFreq: '', belongsTo: 'Hogar' },
-    { name: '', value: '', who: '', commerce: '', paymentMethod: '', group: 'personal_facu', dueDay: 0, dueFreq: '', belongsTo: '' },
-    { name: '', value: '', who: '', commerce: '', paymentMethod: '', group: 'personal_lu', dueDay: 0, dueFreq: '', belongsTo: '' },
-    { name: '', value: '', who: '', commerce: '', paymentMethod: '', group: 'personal_fran', dueDay: 0, dueFreq: '', belongsTo: '' },
-    { name: '', value: '', who: '', commerce: '', paymentMethod: '', group: 'casa', dueDay: 0, dueFreq: '', belongsTo: 'Hogar' },
-  ];
-
-  state.months[name] = {
-    income:  _getDefaultRows('income').map(n  => ({ name: n, value: '', who: '' })),
-    expense: [...fixedExpenses, ...filteredDefaults, ...categoryStubs]
-  };
+  state.months[name] = { income: newIncome, expense: newExpenses };
   currentMonth = name;
   saveState();
   renderAll();
-  showToast('Mes "' + name + '" agregado' + (fixedExpenses.length > 0 ? ' — ' + fixedExpenses.length + ' gasto(s) fijo(s) precargado(s)' : ''));
+  const fixedCount = newExpenses.filter(r => r.dueDay).length;
+  showToast('Mes "' + name + '" agregado' + (fixedCount > 0 ? ' — ' + fixedCount + ' gasto(s) fijo(s) con fecha' : ''));
 }
 
 function switchMonth(name) {
@@ -746,6 +754,65 @@ function deleteCurrentMonth() {
   saveState();
   renderAll();
   showToast('Mes eliminado');
+}
+
+function deleteMonthConfirm(name) {
+  if (!name || !state.months[name]) return;
+  if (!confirm('¿Eliminar el mes "' + name + '"? Esta acción no se puede deshacer.')) return;
+  delete state.months[name];
+  if (currentMonth === name) {
+    const keys = Object.keys(state.months);
+    currentMonth = keys.length > 0 ? keys[keys.length - 1] : null;
+  }
+  saveState();
+  renderAll();
+  showToast('Mes "' + name + '" eliminado');
+}
+window.deleteMonthConfirm = deleteMonthConfirm;
+
+// Show category detail popup
+function showCategoryDetail(groupLabel) {
+  if (!currentMonth || !state.months[currentMonth]) return;
+  const month = state.months[currentMonth];
+  const groups = getEffectiveGroups();
+  // Find the group key from the label
+  let groupKey = '';
+  for (const [k, g] of Object.entries(groups)) {
+    if (g.label === groupLabel) { groupKey = k; break; }
+  }
+  // Filter expenses matching this group
+  const items = (month.expense || []).filter(r => {
+    if (groupKey === '') return !r.group || r.group === '';
+    return r.group === groupKey;
+  }).filter(r => r.name); // only items with a name
+
+  if (items.length === 0) {
+    showToast('No hay gastos en esta categoría');
+    return;
+  }
+
+  const total = items.reduce((s, r) => s + (parseFloat(r.value) || 0), 0);
+  const emoji = (groups[groupKey] || EXPENSE_GROUPS['']).emoji || '○';
+
+  const listHTML = items.map(r => {
+    const val = parseFloat(r.value) || 0;
+    return `<li class="cat-detail-item">
+      <span class="cat-detail-name">${esc(r.name)}</span>
+      ${r.who ? `<span class="cat-detail-who">${esc(r.who)}</span>` : ''}
+      <span class="cat-detail-value">${val > 0 ? fmt(val) : '—'}</span>
+    </li>`;
+  }).join('');
+
+  openModal(
+    `${emoji} ${esc(groupLabel)}`,
+    `<ul class="cat-detail-list">${listHTML}</ul>
+     <div class="cat-detail-total">
+       <span>Total</span>
+       <span>${fmt(total)}</span>
+     </div>`,
+    'Cerrar',
+    closeModal
+  );
 }
 
 // ════════════════════════════════════════════════════════════
@@ -1599,10 +1666,34 @@ function renderNav() {
   if (!nav) return;
   const keys = Object.keys(state.months);
   if (keys.length === 0) { nav.innerHTML = ''; return; }
-  // No duplicate "+ Mes" button here — it's already in the header
-  nav.innerHTML = keys.map(k =>
-    `<button class="month-tab${k === currentMonth ? ' active' : ''}" onclick="switchMonth(${JSON.stringify(k)})">${esc(k)}</button>`
-  ).join('');
+
+  // Current month name for comparison
+  const now = new Date();
+  const currentRealMonth = new Intl.DateTimeFormat('es-ES', { month: 'long' }).format(now);
+  const currentRealName = currentRealMonth.charAt(0).toUpperCase() + currentRealMonth.slice(1) + ' ' + now.getFullYear();
+
+  nav.innerHTML = keys.map(k => {
+    const isActive = k === currentMonth;
+    const isCurrentReal = k === currentRealName;
+    const cls = isActive ? 'month-tab active' : (isCurrentReal ? 'month-tab current-real' : 'month-tab compact');
+    return `<button class="${cls}" data-month="${esc(k)}">${esc(k)}<span class="month-delete" data-delete-month="${esc(k)}" title="Eliminar mes">✕</span></button>`;
+  }).join('');
+
+  // Event delegation for month click and delete
+  nav.onclick = function(e) {
+    const deleteBtn = e.target.closest('.month-delete');
+    if (deleteBtn) {
+      e.stopPropagation();
+      const monthName = deleteBtn.getAttribute('data-delete-month');
+      if (monthName) deleteMonthConfirm(monthName);
+      return;
+    }
+    const tab = e.target.closest('.month-tab');
+    if (tab) {
+      const monthName = tab.getAttribute('data-month');
+      if (monthName) switchMonth(monthName);
+    }
+  };
 }
 
 function renderMain() {
@@ -2072,32 +2163,41 @@ function updateInsightCards() {
     if (sortedGroups.length > 0) {
       const maxVal = sortedGroups[0][1];
       const hintDismissed = localStorage.getItem('hint_subcat_dismissed');
+      const subcatCollapsed = localStorage.getItem('subcat_collapsed') === '1';
       groupWrap.innerHTML = `
-        <div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-soft);margin-bottom:0.25rem;">
-          Egresos por subcategoría
+        <div class="subcat-header" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;padding:0.4rem 0;" onclick="toggleSubcat()">
+          <span style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-soft);">
+            Egresos por subcategoría
+          </span>
+          <span id="subcat-toggle" style="font-size:0.8rem;color:var(--text-soft);transition:transform 0.2s;${subcatCollapsed ? '' : 'transform:rotate(90deg);'}">▸</span>
         </div>
-        ${!hintDismissed ? '<div id="subcat-hint" style="font-size:0.68rem;color:var(--text-soft);opacity:0.5;margin-bottom:0.5rem;transition:opacity 0.5s;">Tocá una categoría para explorarla en el gráfico</div>' : ''}
-        ${sortedGroups.map(([g, val]) => {
-          const info = getEffectiveGroups()[g] || EXPENSE_GROUPS[''];
-          const pct  = maxVal > 0 ? Math.round((val / maxVal) * 100) : 0;
-          return `
-            <div class="group-bar-click" data-group-label="${esc(info.label)}" style="display:flex;align-items:center;gap:0.6rem;margin-bottom:0.38rem;cursor:pointer;">
-              <span style="font-size:0.85rem;width:1.3rem;text-align:center;flex-shrink:0;">${info.emoji}</span>
-              <span style="font-size:0.78rem;min-width:72px;color:var(--text);font-weight:500;">${esc(info.label)}</span>
-              <div style="flex:1;height:7px;background:var(--border);border-radius:4px;overflow:hidden;">
-                <div style="height:100%;width:${pct}%;background:var(--primary);border-radius:4px;transition:width 0.35s;"></div>
-              </div>
-              <span style="font-size:0.78rem;font-weight:700;min-width:68px;text-align:right;color:var(--expense);">${fmt(val)}</span>
-            </div>`;
-        }).join('')}
+        <div id="subcat-bars" style="${subcatCollapsed ? 'display:none;' : ''}">
+          ${!hintDismissed ? '<div id="subcat-hint" style="font-size:0.68rem;color:var(--text-soft);opacity:0.5;margin-bottom:0.5rem;transition:opacity 0.5s;">Tocá una categoría para ver el detalle</div>' : ''}
+          ${sortedGroups.map(([g, val]) => {
+            const info = getEffectiveGroups()[g] || EXPENSE_GROUPS[''];
+            const pct  = maxVal > 0 ? Math.round((val / maxVal) * 100) : 0;
+            return `
+              <div class="group-bar-click" data-group-label="${esc(info.label)}" style="display:flex;align-items:center;gap:0.6rem;margin-bottom:0.38rem;cursor:pointer;">
+                <span style="font-size:0.85rem;width:1.3rem;text-align:center;flex-shrink:0;">${info.emoji}</span>
+                <span style="font-size:0.78rem;min-width:72px;color:var(--text);font-weight:500;">${esc(info.label)}</span>
+                <div style="flex:1;height:7px;background:var(--border);border-radius:4px;overflow:hidden;">
+                  <div style="height:100%;width:${pct}%;background:var(--primary);border-radius:4px;transition:width 0.35s;"></div>
+                </div>
+                <span style="font-size:0.78rem;font-weight:700;min-width:68px;text-align:right;color:var(--expense);">${fmt(val)}</span>
+              </div>`;
+          }).join('')}
+        </div>
       `;
-      // Click on group bar → explode doughnut segment
+      // Click on group bar → show detail popup + explode doughnut segment
       groupWrap.querySelectorAll('.group-bar-click').forEach(bar => {
-        bar.addEventListener('click', function() {
-          if (!chartPie) return;
+        bar.addEventListener('click', function(e) {
+          e.stopPropagation();
           const label = this.getAttribute('data-group-label');
-          const idx = chartPie.data.labels.indexOf(label);
-          if (idx >= 0) toggleDoughnutSegment(chartPie, idx);
+          showCategoryDetail(label);
+          if (chartPie) {
+            const idx = chartPie.data.labels.indexOf(label);
+            if (idx >= 0) toggleDoughnutSegment(chartPie, idx);
+          }
           const hint = document.getElementById('subcat-hint');
           if (hint) { hint.style.opacity = '0'; setTimeout(() => hint.remove(), 500); localStorage.setItem('hint_subcat_dismissed', '1'); }
         });
@@ -2106,6 +2206,16 @@ function updateInsightCards() {
       groupWrap.innerHTML = '';
     }
   }
+}
+
+function toggleSubcat() {
+  const bars = document.getElementById('subcat-bars');
+  const toggle = document.getElementById('subcat-toggle');
+  if (!bars) return;
+  const isHidden = bars.style.display === 'none';
+  bars.style.display = isHidden ? '' : 'none';
+  if (toggle) toggle.style.transform = isHidden ? 'rotate(90deg)' : '';
+  localStorage.setItem('subcat_collapsed', isHidden ? '0' : '1');
 }
 
 // ════════════════════════════════════════════════════════════
@@ -2879,6 +2989,11 @@ function openAddRowModal(type, editIndex) {
       const label = k ? `${g.emoji} ${g.label}` : '○ (sin grupo)';
       return `<option value="${esc(k)}">${esc(label)}</option>`;
     }).join('');
+    // Due date fields for fixed expenses
+    const dueDayOpts = ['<option value="0">(sin vencimiento)</option>']
+      .concat(Array.from({length: 28}, (_, i) => `<option value="${i+1}">Día ${i+1}</option>`)).join('');
+    const currentDueDay = (isEdit && existing && existing.dueDay) ? existing.dueDay : 0;
+    const currentDueFreq = (isEdit && existing && existing.dueFreq) ? existing.dueFreq : '';
     extraFields = `
       <label class="field-label" for="modal-row-commerce">Comercio</label>
       <input type="text" id="modal-row-commerce" list="dl-commerces" placeholder="Ej: Devoto" />
@@ -2886,6 +3001,15 @@ function openAddRowModal(type, editIndex) {
       <input type="text" id="modal-row-payment" placeholder="Ej: Efectivo, Débito, Crédito..." />
       <label class="field-label" for="modal-row-group">Grupo</label>
       <select id="modal-row-group">${groupOpts}</select>
+      <div id="due-date-fields" style="${(isEdit && existing && existing.group === 'fijos') ? '' : 'display:none;'}">
+        <label class="field-label" for="modal-row-due-day">📅 Día de vencimiento</label>
+        <select id="modal-row-due-day">${dueDayOpts}</select>
+        <label class="field-label" for="modal-row-due-freq">🔄 Frecuencia</label>
+        <select id="modal-row-due-freq">
+          <option value="mensual" ${currentDueFreq !== 'bimensual' ? 'selected' : ''}>Mensual</option>
+          <option value="bimensual" ${currentDueFreq === 'bimensual' ? 'selected' : ''}>Bimensual</option>
+        </select>
+      </div>
     `;
   }
 
@@ -2920,11 +3044,13 @@ function openAddRowModal(type, editIndex) {
         const commerce = (document.getElementById('modal-row-commerce')?.value || '').trim();
         const paymentMethod = (document.getElementById('modal-row-payment')?.value || '').trim();
         const group = document.getElementById('modal-row-group')?.value || '';
+        const dueDay = parseInt(document.getElementById('modal-row-due-day')?.value || '0') || 0;
+        const dueFreq = document.getElementById('modal-row-due-freq')?.value || '';
         if (commerce && !state.commerces.includes(commerce)) {
           state.commerces.push(commerce);
           updateCommercesDatalist();
         }
-        row = { name, value, who, belongsTo, commerce, paymentMethod, group, date: existingDate };
+        row = { name, value, who, belongsTo, commerce, paymentMethod, group, date: existingDate, dueDay, dueFreq: dueDay > 0 ? dueFreq : '' };
       } else {
         row = { name, value, who, belongsTo, date: existingDate };
       }
@@ -2932,10 +3058,12 @@ function openAddRowModal(type, editIndex) {
         ? Array.from(document.querySelectorAll('.modal-split-chk:checked')).map(i => i.value)
         : [];
       const numVal = parseFloat(value);
-      const shouldSplit = splitMembers.length >= 2 && !isNaN(numVal) && numVal > 0;
+      const hasValidAmount = !isNaN(numVal) && numVal > 0;
+      const shouldSplit = splitMembers.length >= 2;
       if (shouldSplit) {
-        const share = Math.round((numVal / splitMembers.length) * 100) / 100;
-        const splitRows = splitMembers.map(m => ({ ...row, who: m, value: String(share) }));
+        // Split works even without amount: creates rows per person, value stays empty if no amount
+        const share = hasValidAmount ? String(Math.round((numVal / splitMembers.length) * 100) / 100) : '';
+        const splitRows = splitMembers.map(m => ({ ...row, who: m, value: share }));
         if (isEdit) {
           state.months[currentMonth][type].splice(editIndex, 1, ...splitRows);
         } else {
@@ -2985,6 +3113,9 @@ function openAddRowModal(type, editIndex) {
         const share = Math.round((v / checked.length) * 100) / 100;
         previewEl.textContent = `✔ Se crearán ${checked.length} filas (una por persona) · $${share.toLocaleString('es-UY')} c/u`;
         if (whoSelect) { whoSelect.disabled = true; whoSelect.style.opacity = '0.5'; }
+      } else if (checked.length >= 2 && v === 0) {
+        previewEl.textContent = `✔ Se crearán ${checked.length} filas (una por persona) · monto a definir después`;
+        if (whoSelect) { whoSelect.disabled = true; whoSelect.style.opacity = '0.5'; }
       } else if (checked.length === 1) {
         previewEl.textContent = `⚠ Marcá al menos 2 personas para dividir (o desmarcá para usar "Quién").`;
         if (whoSelect) { whoSelect.disabled = false; whoSelect.style.opacity = '1'; }
@@ -2995,6 +3126,20 @@ function openAddRowModal(type, editIndex) {
     }
     chks.forEach(c => c.addEventListener('change', updateSplitPreview));
     if (valInput) valInput.addEventListener('input', updateSplitPreview);
+
+    // Show/hide due date fields when group changes to/from 'fijos'
+    const groupSelect = document.getElementById('modal-row-group');
+    const dueFields = document.getElementById('due-date-fields');
+    if (groupSelect && dueFields) {
+      groupSelect.addEventListener('change', function () {
+        dueFields.style.display = this.value === 'fijos' ? '' : 'none';
+      });
+    }
+    // Prefill due date if editing
+    if (isEdit && existing && existing.dueDay) {
+      const dd = document.getElementById('modal-row-due-day');
+      if (dd) dd.value = existing.dueDay;
+    }
   }, 50);
 }
 window.openAddRowModal = openAddRowModal;
@@ -3533,8 +3678,32 @@ document.addEventListener('DOMContentLoaded', function () {
     }
   });
 
+  // ── Header toggle (mobile collapse) ──────────────────────
+  document.getElementById('header-toggle')?.addEventListener('click', function() {
+    const actions = document.getElementById('header-actions');
+    if (actions) {
+      actions.classList.toggle('open');
+      this.textContent = actions.classList.contains('open') ? '✕' : '☰';
+    }
+  });
+
   // ── Dark mode button ─────────────────────────────────────
   document.getElementById('btn-dark-mode')?.addEventListener('click', toggleDarkMode);
+
+  // ── Header brand click → go to current month ────────────
+  document.querySelector('.header-brand')?.addEventListener('click', function () {
+    const now = new Date();
+    const monthNames = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+    const currentRealName = monthNames[now.getMonth()] + ' ' + now.getFullYear();
+    if (state.months[currentRealName]) {
+      switchMonth(currentRealName);
+    } else if (currentMonth) {
+      // If current real month doesn't exist, switch to the last available month
+      const keys = Object.keys(state.months);
+      if (keys.length) switchMonth(keys[keys.length - 1]);
+    }
+  });
+  document.querySelector('.header-brand').style.cursor = 'pointer';
 
   // ── Profile selector ─────────────────────────────────────
   document.getElementById('btn-profile')?.addEventListener('click', function (e) {

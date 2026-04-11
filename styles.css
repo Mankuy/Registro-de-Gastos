@@ -324,6 +324,72 @@ body {
   box-shadow: 0 4px 14px rgba(124,58,237,0.35);
 }
 .month-tab.active:hover { background: var(--primary-dark, var(--primary)); }
+
+/* Compact months (previous, not active) */
+.month-tab.compact {
+  font-size: 0.75rem;
+  padding: 0.35rem 0.7rem;
+  min-height: 32px;
+  opacity: 0.7;
+}
+.month-tab.compact:hover {
+  opacity: 1;
+}
+
+/* Current real month (even if not selected) */
+.month-tab.current-real {
+  font-weight: 700;
+  border-color: rgba(124,58,237,0.3);
+}
+
+/* Delete button on month tabs */
+.month-delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 0.5rem;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  font-size: 0.65rem;
+  opacity: 0;
+  transition: opacity 0.15s;
+  background: rgba(0,0,0,0.15);
+  color: inherit;
+  line-height: 1;
+}
+.month-tab:hover .month-delete,
+.month-tab.active .month-delete { opacity: 0.6; }
+.month-delete:hover { opacity: 1 !important; background: rgba(220,38,38,0.8); color: white; }
+
+/* Category detail modal content */
+.cat-detail-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.cat-detail-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.88rem;
+}
+.cat-detail-item:last-child { border-bottom: none; }
+.cat-detail-name { color: var(--text); flex: 1; }
+.cat-detail-who { color: var(--text-soft); font-size: 0.78rem; margin-left: 0.5rem; }
+.cat-detail-value { color: var(--primary-dark); font-weight: 600; white-space: nowrap; margin-left: 0.5rem; }
+.cat-detail-total {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.75rem 0 0;
+  margin-top: 0.5rem;
+  border-top: 2px solid var(--primary);
+  font-weight: 700;
+  font-size: 1rem;
+  color: var(--primary-dark);
+}
 .persona-tab { /* hereda de month-tab */ }
 
 .btn-add-month-nav {
@@ -1208,10 +1274,31 @@ tr:hover .btn-del { opacity: 1; }
 @media (max-width: 900px) {
   .summary { grid-template-columns: repeat(2, 1fr); }
 }
+/* Header toggle button — hidden on desktop */
+.header-toggle {
+  display: none;
+  margin-left: auto;
+  font-size: 1.1rem;
+  min-width: 38px;
+  width: 38px;
+  padding: 0;
+}
+
 @media (max-width: 640px) {
   .summary { grid-template-columns: 1fr; }
   .charts-grid { grid-template-columns: 1fr; }
-  .header-actions { flex-wrap: wrap; gap: 0.4rem; }
+
+  /* Collapsible header */
+  .header-toggle { display: inline-flex; }
+  .header-actions {
+    display: none;
+    width: 100%;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    padding-top: 0.5rem;
+  }
+  .header-actions.open { display: flex; }
+
   .btn-hdr {
     min-height: 38px;
     padding: 0.45rem 0.85rem;
