@@ -117,15 +117,20 @@ function addExpense(profiles, activeId, month, expense) {
 
 // ── Grupos de egreso (deben coincidir con la app) ────────
 const BOT_EXPENSE_GROUPS = {
-  fijos:    { label: 'Fijos',    emoji: '🏠' },
-  comida:   { label: 'Comida',   emoji: '🛒' },
-  afuera:   { label: 'Afuera',   emoji: '🍽️' },
-  animales: { label: 'Animales', emoji: '🐾' },
-  ninos:    { label: 'Niñxs',    emoji: '👶' },
-  salud:    { label: 'Salud',    emoji: '💊' },
-  vehiculo: { label: 'Vehículo', emoji: '🚗' },
-  ocio:     { label: 'Ocio',     emoji: '🎭' },
-  otros:    { label: 'Otros',    emoji: '📦' }
+  fijos:          { label: 'Gastos Fijos',  emoji: '🏠' },
+  comida:         { label: 'Comida',        emoji: '🛒' },
+  afuera:         { label: 'Afuera',        emoji: '🍽️' },
+  animales:       { label: 'Animales',      emoji: '🐾' },
+  salud:          { label: 'Salud',         emoji: '💊' },
+  vehiculo:       { label: 'Vehículo',      emoji: '🚗' },
+  ocio:           { label: 'Ocio',          emoji: '🎭' },
+  otros:          { label: 'Otros',         emoji: '📦' },
+  ahorro:         { label: 'Ahorro',        emoji: '💰' },
+  farmacia:       { label: 'Farmacia',      emoji: '💊' },
+  personal_lu:    { label: 'Personal Lu',   emoji: '🙍🏻‍♀️' },
+  personal_facu:  { label: 'Personal Facu', emoji: '🧔🏻‍♂️' },
+  personal_fran:  { label: 'Personal Fran', emoji: '👶' },
+  familia:        { label: 'Familia',       emoji: '👨‍👩‍👧' }
 };
 
 function resolveGroupKey(text, profile) {
@@ -206,6 +211,9 @@ function resolveBelongsTo(text, members) {
   if (!text) return '';
   const t = text.trim().toLowerCase();
   if (t === 'hogar') return 'Hogar';
+  if (t === 'lu') return 'Lu';
+  if (t === 'facu') return 'Facu';
+  if (t === 'fran') return 'Fran';
   const m = (members || []).find(mm => mm.toLowerCase() === t);
   return m || text.trim();
 }
@@ -508,8 +516,10 @@ function whoKeyboard(members) {
 }
 
 function belongsKeyboard(members) {
-  const rows = [[['🏠 Hogar', 'Hogar']]];
-  chunkPairs(members.map(m => [m, m])).forEach(r => rows.push(r));
+  const rows = [
+    [['🏠 Hogar', 'Hogar'], ['Lu', 'Lu']],
+    [['Facu', 'Facu'], ['Fran', 'Fran']]
+  ];
   rows.push([['⏭️ Skip', '/skip'], ['✅ Listo', '/listo'], ['❌ Cancelar', '/cancelar']]);
   return kb(rows);
 }
@@ -590,7 +600,7 @@ Reglas:
 - "amount" en pesos uruguayos (solo número, sin símbolo).
 - "name" descripción corta del gasto (ej: "Supermercado", "UTE", "Nafta"). NO incluyas en el nombre palabras como "pagamos", "pagué", "compré", "corresponde a", etc., ni los nombres de personas.
 - "who" SIEMPRE un array de strings con los adultos que pagaron. Valores válidos: ${contribsList}. Mapeá apodos/diminutivos (ej: "facundo"→"Facu"). Si el mensaje dice "pagamos lu y facu", "entre X y Y", "compartido con Z" devolvé TODOS los nombres en el array. Si dice "pagué" sin decir quién, dejá array vacío.
-- "belongsTo" puede ser "Hogar" o uno de: ${membersList}. Si dice "para la casa", "del hogar", "corresponde a hogar" → "Hogar".
+- "belongsTo" puede ser "Hogar", "Lu", "Facu", "Fran", o uno de: ${membersList}. Si dice "para la casa", "del hogar", "corresponde a hogar" → "Hogar". Si dice "para lu", "de lu" → "Lu". Si dice "para facu", "de facu" → "Facu". Si dice "para fran", "de fran" → "Fran".
 - "group" debe ser uno de: ${groupLabels.join(', ')}.
 - "commerce" nombre del comercio si lo menciona explícitamente.
 - "paymentMethod" uno de: Efectivo, Débito, Crédito, Transferencia, Mercado Pago.
@@ -1112,7 +1122,7 @@ export default {
               name: String(ai.name).trim(),
               value: Number(ai.amount) || 0,
               who: whoField || (matchedWho[0] || ''),
-              belongsTo: matchMember(ai.belongsTo, members) || (String(ai.belongsTo).toLowerCase() === 'hogar' ? 'Hogar' : ''),
+              belongsTo: resolveBelongsTo(ai.belongsTo, members),
               commerce: ai.commerce || '',
               paymentMethod: ai.paymentMethod || '',
               group: resolveGroupKey(ai.group || '', profile)

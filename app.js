@@ -85,16 +85,24 @@ const CHART_COLORS = [
 
 // Grupos de subcategorías de egresos
 const EXPENSE_GROUPS = {
-  '':             { label: '',              emoji: '○',   title: 'Sin grupo — clic para asignar' },
-  fijos:          { label: 'Gastos Fijos',  emoji: '🏠',  title: 'Gastos Fijos (detallados)' },
-  comida:         { label: 'Comida',        emoji: '🛒',  title: 'Comida' },
-  farmacia:       { label: 'Farmacia',      emoji: '💊',  title: 'Farmacia' },
-  personal_facu:  { label: 'Personal Facu', emoji: '👤',  title: 'Personal Facu' },
-  personal_lu:    { label: 'Personal Lu',   emoji: '👤',  title: 'Personal Lu' },
-  personal_fran:  { label: 'Personal Fran', emoji: '👤',  title: 'Personal Fran' },
-  casa:           { label: 'Casa',          emoji: '🏡',  title: 'Casa' }
+  '':             { label: '',              emoji: '○',        title: 'Sin grupo — clic para asignar' },
+  fijos:          { label: 'Gastos Fijos',  emoji: '🏠',       title: 'Gastos Fijos (detallados)' },
+  comida:         { label: 'Comida',        emoji: '🛒',       title: 'Comida' },
+  farmacia:       { label: 'Farmacia',      emoji: '💊',       title: 'Farmacia' },
+  personal_facu:  { label: 'Personal Facu', emoji: '🧔🏻‍♂️',  title: 'Personal Facu' },
+  personal_lu:    { label: 'Personal Lu',   emoji: '🙍🏻‍♀️',  title: 'Personal Lu' },
+  personal_fran:  { label: 'Personal Fran', emoji: '👶',       title: 'Personal Fran' },
+  familia:        { label: 'Familia',       emoji: '👨‍👩‍👧',    title: 'Familia' },
+  ahorro:         { label: 'Ahorro',        emoji: '💰',       title: 'Ahorro' },
+  casa:           { label: 'Casa',          emoji: '🏡',       title: 'Casa' },
+  afuera:         { label: 'Afuera',        emoji: '🍽️',      title: 'Afuera' },
+  animales:       { label: 'Animales',      emoji: '🐾',       title: 'Animales' },
+  salud:          { label: 'Salud',         emoji: '💊',       title: 'Salud' },
+  vehiculo:       { label: 'Vehículo',      emoji: '🚗',       title: 'Vehículo' },
+  ocio:           { label: 'Ocio',          emoji: '🎭',       title: 'Ocio' },
+  otros:          { label: 'Otros',         emoji: '📦',       title: 'Otros' }
 };
-const GROUP_ORDER = ['', 'fijos', 'comida', 'farmacia', 'personal_facu', 'personal_lu', 'personal_fran', 'casa'];
+const GROUP_ORDER = ['', 'fijos', 'comida', 'personal_facu', 'personal_lu', 'personal_fran', 'familia', 'farmacia', 'ahorro', 'casa', 'afuera', 'animales', 'salud', 'vehiculo', 'ocio', 'otros'];
 
 function getEffectiveGroups() {
   const custom = (state && state.customGroups) ? state.customGroups : [];
