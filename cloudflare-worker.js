@@ -222,19 +222,26 @@ function finalizeMsg(expense, month) {
   const split = expense._splitMembers;
   const total = Number(expense.value) || 0;
   const parts = [
-    `💖 ¡Listo! Te lo anoté en ${month}`,
+    `🫶 ¡Listo! Te lo anoté en ${month}`,
     `💰 $${total.toLocaleString('es-UY')} en "${expense.name}"`
   ];
   if (split && split.length >= 2) {
     const share = Math.round((total / split.length) * 100) / 100;
     parts.push(`🧮 Compartido entre ${split.join(', ')} ($${share.toLocaleString('es-UY')} c/u)`);
   } else {
-    if (expense.who) parts.push(`👤 ${expense.who}`);
-    if (expense.belongsTo) parts.push(`👥 Corresponde a: ${expense.belongsTo}`);
+    if (expense.who) {
+      const whoEmoji = (expense.who.includes(',') || expense.who.includes(' y ')) ? '🫂' : '👤';
+      parts.push(`${whoEmoji} ${expense.who}`);
+    }
+    if (expense.belongsTo) {
+      const belongsEmoji = expense.belongsTo.toLowerCase() === 'hogar' ? '👨‍👩‍👦' : '👥';
+      parts.push(`${belongsEmoji} Corresponde a: ${expense.belongsTo}`);
+    }
   }
   if (expense.group && BOT_EXPENSE_GROUPS[expense.group]) parts.push(`🏷️ ${BOT_EXPENSE_GROUPS[expense.group].label}`);
   if (expense.commerce) parts.push(`🏪 ${expense.commerce}`);
   if (expense.paymentMethod) parts.push(`💳 ${expense.paymentMethod}`);
+  if (expense.dueDay) parts.push(`📅 Vence día ${expense.dueDay}`);
   return parts.join('\n');
 }
 
@@ -545,14 +552,42 @@ function stepControlsKeyboard() {
   return kb([[['⏭️ Skip', '/skip'], ['✅ Listo', '/listo'], ['❌ Cancelar', '/cancelar']]]);
 }
 
-function reviewKeyboard() {
+function dueDayKeyboard() {
   return kb([
+    [['5', '5'], ['10', '10'], ['15', '15'], ['20', '20']],
+    [['25', '25'], ['28', '28'], ['1', '1']],
+    [['⏭️ Skip', '/skip'], ['✅ Listo', '/listo'], ['❌ Cancelar', '/cancelar']]
+  ]);
+}
+
+// Buscar gasto fijo del mes anterior con el mismo nombre
+function findPreviousFixedExpense(profile, currentMonth, expenseName) {
+  if (!profile || !profile.months || !expenseName) return null;
+  const name = expenseName.toLowerCase().trim();
+  const monthKeys = Object.keys(profile.months).sort();
+  // Buscar en orden inverso (mes más reciente primero)
+  for (let i = monthKeys.length - 1; i >= 0; i--) {
+    if (monthKeys[i] === currentMonth) continue;
+    const month = profile.months[monthKeys[i]];
+    if (!month.expense) continue;
+    const found = month.expense.find(r =>
+      r.name && r.name.toLowerCase().trim() === name && r.group === 'fijos' && r.dueDay
+    );
+    if (found) return found;
+  }
+  return null;
+}
+
+function reviewKeyboard() {
+  const rows = [
     [['✅ Guardar así', '/listo']],
     [['✏️ Categoría', '__edit_name'], ['✏️ Quién', '__edit_who']],
     [['✏️ Corresponde a', '__edit_belongs'], ['✏️ Grupo', '__edit_group']],
     [['✏️ Comercio', '__edit_commerce'], ['✏️ Medio de pago', '__edit_payment']],
+    [['✏️ Vence', '__edit_due_day']],
     [['❌ Cancelar', '/cancelar']]
-  ]);
+  ];
+  return kb(rows);
 }
 
 function reviewSummary(expense) {
@@ -562,15 +597,18 @@ function reviewSummary(expense) {
     const share = Math.round(((parseFloat(expense.value) || 0) / expense._splitMembers.length) * 100) / 100;
     lines.push(`👤 Compartido entre ${expense._splitMembers.join(', ')} ($${share.toLocaleString('es-UY')} c/u)`);
   } else if (expense.who) {
-    lines.push(`👤 ${expense.who}`);
+    const whoEmoji = (expense.who.includes(',') || expense.who.includes(' y ')) ? '🫂' : '👤';
+    lines.push(`${whoEmoji} ${expense.who}`);
   } else {
     lines.push(`👤 <i>(sin asignar)</i>`);
   }
-  lines.push(`👥 Corresponde a: ${expense.belongsTo || '<i>(sin asignar)</i>'}`);
+  const belongsEmoji = expense.belongsTo && expense.belongsTo.toLowerCase() === 'hogar' ? '👨‍👩‍👦' : '👥';
+  lines.push(`${belongsEmoji} Corresponde a: ${expense.belongsTo || '<i>(sin asignar)</i>'}`);
   const groupLabel = expense.group && BOT_EXPENSE_GROUPS[expense.group]
     ? `${BOT_EXPENSE_GROUPS[expense.group].emoji} ${BOT_EXPENSE_GROUPS[expense.group].label}`
     : (expense.group || '<i>(sin grupo)</i>');
   lines.push(`🏷️ ${groupLabel}`);
+  if (expense.dueDay) lines.push(`📅 Vence día ${expense.dueDay}`);
   lines.push(`🏪 ${expense.commerce || '<i>(sin comercio)</i>'}`);
   lines.push(`💳 ${expense.paymentMethod || '<i>(sin medio de pago)</i>'}`);
   lines.push('', '¿Guardar así o querés editar algo?');
@@ -1038,6 +1076,13 @@ export default {
               await sendMessage(env.BOT_TOKEN, chatId, '💳 ¿Medio de pago?', paymentKeyboard());
               return new Response('OK');
             }
+            if (text === '__edit_due_day') {
+              session.step = 'dueDay'; session.returnToReview = true;
+              profiles._sessions[sessionKey] = session;
+              await writeProfiles(env.FIREBASE_PROJECT, env.FIREBASE_USER_ID, token, profiles, activeId);
+              await sendMessage(env.BOT_TOKEN, chatId, '📅 ¿Qué día vence? (1-31)', dueDayKeyboard());
+              return new Response('OK');
+            }
             // Cualquier otro texto en review: reenviar el resumen
             await sendMessage(env.BOT_TOKEN, chatId, reviewSummary(session.expense), reviewKeyboard());
             return new Response('OK');
@@ -1079,6 +1124,26 @@ export default {
           }
           if (session.step === 'group') {
             if (!skip) session.expense.group = resolveGroupKey(text, profile);
+            if (session.returnToReview) { await gotoReview(); return new Response('OK'); }
+            // Si es gasto fijo, pedir día de vencimiento
+            if (session.expense.group === 'fijos') {
+              session.step = 'dueDay';
+              profiles._sessions[sessionKey] = session;
+              await writeProfiles(env.FIREBASE_PROJECT, env.FIREBASE_USER_ID, token, profiles, activeId);
+              await sendMessage(env.BOT_TOKEN, chatId, '📅 ¿Qué día vence? (1-31)', dueDayKeyboard());
+              return new Response('OK');
+            }
+            session.step = 'commerce';
+            profiles._sessions[sessionKey] = session;
+            await writeProfiles(env.FIREBASE_PROJECT, env.FIREBASE_USER_ID, token, profiles, activeId);
+            await sendMessage(env.BOT_TOKEN, chatId, '🏪 ¿Comercio? (ej: Devoto, o escribilo)', stepControlsKeyboard());
+            return new Response('OK');
+          }
+          if (session.step === 'dueDay') {
+            if (!skip) {
+              const day = parseInt(text.replace(/[^0-9]/g, '')) || 0;
+              if (day >= 1 && day <= 31) session.expense.dueDay = day;
+            }
             if (session.returnToReview) { await gotoReview(); return new Response('OK'); }
             session.step = 'commerce';
             profiles._sessions[sessionKey] = session;
@@ -1152,9 +1217,20 @@ export default {
             return new Response('OK');
           }
           await sendMessage(env.BOT_TOKEN, chatId,
-            '🌸 Mmm, no entendí del todo. Probá así:\n<code>[monto] [categoría] [quién]</code>\nEj: <code>850 super facu</code>\n\n📸 O mandame una foto del ticket y yo me encargo 💕'
+            '🌸 Mmm, no entendí del todo. Probá así:\\n<code>[monto] [categoría] [quién]</code>\\nEj: <code>850 super facu</code>\\n\\n📸 O mandame una foto del ticket y yo me encargo 💕'
           );
           return new Response('OK');
+        }
+
+        // Autocompletar desde gasto fijo del mes anterior
+        const prevFixed = findPreviousFixedExpense(profile, month, pending.name);
+        if (prevFixed) {
+          if (!pending.who && prevFixed.who) pending.who = prevFixed.who;
+          if (!pending.commerce && prevFixed.commerce) pending.commerce = prevFixed.commerce;
+          if (!pending.paymentMethod && prevFixed.paymentMethod) pending.paymentMethod = prevFixed.paymentMethod;
+          if (!pending.belongsTo && prevFixed.belongsTo) pending.belongsTo = prevFixed.belongsTo;
+          if (!pending.group && prevFixed.group) pending.group = prevFixed.group;
+          if (prevFixed.dueDay) pending.dueDay = prevFixed.dueDay;
         }
 
         profiles._sessions[sessionKey] = { expense: pending, step: 'review', month };
