@@ -3737,6 +3737,24 @@ document.addEventListener('DOMContentLoaded', function () {
     }
   });
 
+  // ── Refrescar datos de Firestore cuando la pestaña vuelve al foreground ──
+  document.addEventListener('visibilitychange', async function() {
+    if (document.visibilityState === 'visible' && firebase.auth().currentUser) {
+      try {
+        const doc = await firebase.firestore().collection('profiles').doc(firebase.auth().currentUser.uid).get();
+        if (doc.exists) {
+          const d = doc.data();
+          const parsed = typeof d.data === 'string' ? JSON.parse(d.data) : d.data;
+          if (parsed && Object.keys(parsed).length > 0) {
+            localStorage.setItem('profiles_' + firebase.auth().currentUser.uid, JSON.stringify(parsed));
+            localStorage.setItem('activeId_' + firebase.auth().currentUser.uid, d.activeId || 'familia');
+            location.reload();
+          }
+        }
+      } catch(e) {}
+    }
+  });
+
   // ── Header toggle (mobile collapse) ──────────────────────
   document.getElementById('header-toggle')?.addEventListener('click', function() {
     const actions = document.getElementById('header-actions');
