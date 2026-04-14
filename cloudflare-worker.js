@@ -90,29 +90,18 @@ function addExpense(profiles, activeId, month, expense) {
 
   const expenses = profile.months[month].expense;
 
-  // Si ya existe la categoría, sumar al valor existente
+  // Cada gasto es una línea nueva — sin merge por nombre
   const today = new Date().toISOString().slice(0, 10);
-  const existing = expenses.find(r => r.name.toLowerCase() === expense.name.toLowerCase());
-  if (existing) {
-    existing.value = String((parseFloat(existing.value) || 0) + parseFloat(expense.value));
-    if (expense.who) existing.who = expense.who;
-    if (expense.commerce) existing.commerce = expense.commerce;
-    if (expense.paymentMethod) existing.paymentMethod = expense.paymentMethod;
-    if (expense.group) existing.group = expense.group;
-    if (expense.belongsTo) existing.belongsTo = expense.belongsTo;
-    existing.date = expense.date || today;
-  } else {
-    expenses.push({
-      name: expense.name,
-      value: String(expense.value),
-      who: expense.who || '',
-      belongsTo: expense.belongsTo || '',
-      commerce: expense.commerce || '',
-      paymentMethod: expense.paymentMethod || '',
-      group: expense.group || '',
-      date: expense.date || today
-    });
-  }
+  expenses.push({
+    name: expense.name,
+    value: String(expense.value),
+    who: expense.who || '',
+    belongsTo: expense.belongsTo || '',
+    commerce: expense.commerce || '',
+    paymentMethod: expense.paymentMethod || '',
+    group: expense.group || '',
+    date: expense.date || today
+  });
 }
 
 // ── Grupos de egreso (deben coincidir con la app) ────────
@@ -582,7 +571,7 @@ function reviewKeyboard() {
   const rows = [
     [['✅ Guardar así', '/listo']],
     [['✏️ Categoría', '__edit_name'], ['✏️ Quién', '__edit_who']],
-    [['✏️ Corresponde a', '__edit_belongs'], ['✏️ Grupo', '__edit_group']],
+    [['✏️ Corresponde a', '__edit_belongs'], ['✏️ Rubro', '__edit_group']],
     [['✏️ Comercio', '__edit_commerce'], ['✏️ Medio de pago', '__edit_payment']],
     [['✏️ Vence', '__edit_due_day']],
     [['❌ Cancelar', '/cancelar']]
@@ -606,7 +595,7 @@ function reviewSummary(expense) {
   lines.push(`${belongsEmoji} Corresponde a: ${expense.belongsTo || '<i>(sin asignar)</i>'}`);
   const groupLabel = expense.group && BOT_EXPENSE_GROUPS[expense.group]
     ? `${BOT_EXPENSE_GROUPS[expense.group].emoji} ${BOT_EXPENSE_GROUPS[expense.group].label}`
-    : (expense.group || '<i>(sin grupo)</i>');
+    : (expense.group || '<i>(sin rubro)</i>');
   lines.push(`🏷️ ${groupLabel}`);
   if (expense.dueDay) lines.push(`📅 Vence día ${expense.dueDay}`);
   lines.push(`🏪 ${expense.commerce || '<i>(sin comercio)</i>'}`);
@@ -635,15 +624,23 @@ Extraé del mensaje libre un JSON con estos campos:
 {"amount": number, "name": string, "who": string[], "belongsTo": string, "group": string, "commerce": string, "paymentMethod": string}
 
 Reglas:
-- "amount" en pesos uruguayos (solo número, sin símbolo).
-- "name" descripción corta del gasto (ej: "Supermercado", "UTE", "Nafta"). NO incluyas en el nombre palabras como "pagamos", "pagué", "compré", "corresponde a", etc., ni los nombres de personas.
-- "who" SIEMPRE un array de strings con los adultos que pagaron. Valores válidos: ${contribsList}. Mapeá apodos/diminutivos (ej: "facundo"→"Facu"). Si el mensaje dice "pagamos lu y facu", "entre X y Y", "compartido con Z" devolvé TODOS los nombres en el array. Si dice "pagué" sin decir quién, dejá array vacío.
-- "belongsTo" puede ser "Hogar", "Lu", "Facu", "Fran", o uno de: ${membersList}. Si dice "para la casa", "del hogar", "corresponde a hogar" → "Hogar". Si dice "para lu", "de lu" → "Lu". Si dice "para facu", "de facu" → "Facu". Si dice "para fran", "de fran" → "Fran".
-- "group" debe ser uno de: ${groupLabels.join(', ')}.
-- "commerce" nombre del comercio si lo menciona explícitamente.
-- "paymentMethod" uno de: Efectivo, Débito, Crédito, Transferencia, Mercado Pago.
-- Si un campo no aparece en el mensaje, devolvelo vacío ("" o [] según corresponda; 0 si es amount).
-- Respondé SOLO con el JSON, sin texto adicional, sin markdown.`;
+- "amount" en pesos uruguayos (solo número).
+- "name" descripción corta del gasto (ej: "Supermercado", "UTE", "Nafta", "Surtido"). NO incluyas en el nombre palabras como "pagamos", "pagué", "compré", ni nombres de personas.
+- "who" array con los adultos que pagaron. Valores: Facu, Lu, Fran, u otros de tu contexto. Mapeá apodos. Ej: "pagué yo" → ["Facu"]. "pagamos lu y facu" → ["Lu","Facu"].
+- "belongsTo" quién se beneficia: "Hogar" (la casa), "Lu", "Facu", "Fran".
+- "group" la categoría: "Comida", "Salud", "Ocio", "Vehículo", "Gastos Fijos", "Animales", "Afuera", "Farmacia", "Personal Lu", "Personal Facu", "Personal Fran", "Familia", "Ahorro", "Otros".
+- "commerce" nombre del comercio (ej: "El Naranjo", "Ancap", "Devoto", "Farmacia San José").
+- "paymentMethod" medio de pago: "Efectivo", "Débito", "Crédito", "Transferencia", "Mercado Pago".
+
+Ejemplos de parsing:
+- "850 super facu" → {"amount":850, "name":"Super", "who":["Facu"], "belongsTo":"", "group":"Comida", "commerce":"", "paymentMethod":""}
+- "1200 farmacia lu hogar salud" → {"amount":1200, "name":"Farmacia", "who":["Lu"], "belongsTo":"Hogar", "group":"Salud", "commerce":"", "paymentMethod":""}
+- "1141 Surtido Lu Hogar Comida El Naranjo Débito" → {"amount":1141, "name":"Surtido", "who":["Lu"], "belongsTo":"Hogar", "group":"Comida", "commerce":"El Naranjo", "paymentMethod":"Débito"}
+- "2500 nafta facu auto ancap débito" → {"amount":2500, "name":"Nafta", "who":["Facu"], "belongsTo":"", "group":"Vehículo", "commerce":"Ancap", "paymentMethod":"Débito"}
+- "3400 cena facu y lu hogar ocio la pasiva efectivo" → {"amount":3400, "name":"Cena", "who":["Facu","Lu"], "belongsTo":"Hogar", "group":"Ocio", "commerce":"La Pasiva", "paymentMethod":"Efectivo"}
+
+Si un campo no aparece, devolvé vacío ("" o [] según corresponda; 0 si es amount).
+Respondé SOLO con el JSON, sin texto adicional, sin markdown.`;
   try {
     const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
@@ -837,26 +834,37 @@ export default {
 
       // ── Comando /help ──────────────────────────────────
       if (msg.text && ['/help', '/start', '/ayuda'].includes(msg.text.trim())) {
-        const builtinList = Object.values(BOT_EXPENSE_GROUPS).map(g => `   ${g.emoji} ${g.label}`).join('\n');
-        const customList = (profile?.customGroups || []).map(g => `   ${g.emoji || '🏷️'} ${g.label}`).join('\n');
-        const allCats = customList ? builtinList + '\n' + customList : builtinList;
-        const membersTxt = members.length ? members.join(', ') : 'tu familia';
+        const builtinList = Object.values(BOT_EXPENSE_GROUPS).map(g => `${g.emoji} ${g.label}`).join('  ');
+        const customList = (profile?.customGroups || []).map(g => `${g.emoji || '🏷️'} ${g.label}`).join('  ');
+        const allCats = customList ? builtinList + '  ' + customList : builtinList;
 
         await sendMessage(env.BOT_TOKEN, chatId,
-          `¡Holaa! 💕 Soy tu asistente del hogar, acá para ayudarte a llevar las cuentas tranqui.\n\n` +
-          `🗂️ <b>Estas son tus categorías:</b>\n${allCats}\n\n` +
-          `👨‍👩‍👧 <b>Miembros:</b> ${membersTxt}\n\n` +
-          `✨ <b>Para anotar un gasto, escribime así:</b>\n` +
-          `<code>[monto] [categoría] [quién]</code>\n` +
-          `Ej: <code>850 super facu</code>\n\n` +
-          `📸 O mandame una foto del ticket y yo lo leo por vos 💖\n` +
-          `📄 También leo PDFs (factura UTE, OSE, etc) — mandame el archivo 💕\n` +
+          `¡Holaa! 💕 Soy Clotilda, tu asistente del hogar.\n\n` +
+          `✨ <b>Así anotás un gasto:</b>\n` +
+          `<code>[monto] [en qué se gastó] [quién pagó] [para quién es] [rubro] [comercio] [medio de pago]</code>\n\n` +
+          `<b>Obligatorios:</b> monto y en qué se gastó.\n` +
+          `El resto es opcional — si lo omitís te pregunto paso a paso.\n\n` +
+          `<b>Ejemplos:</b>\n` +
+          `• <code>850 super facu</code>\n` +
+          `• <code>1200 farmacia lu hogar salud</code>\n` +
+          `• <code>2500 nafta facu auto ancap débito</code>\n` +
+          `• <code>3400 cena facu y lu hogar ocio la pasiva efectivo</code> (completo)\n\n` +
+          `📸 Mandame una foto del ticket y yo lo leo por vos 💖\n` +
+          `📄 También leo PDFs (UTE, OSE, etc.) 💕\n` +
           `🎤 O una nota de voz y la transcribo 💕\n\n` +
-          `<b>Otros comanditos:</b>\n` +
+          `<b>¿Qué es cada cosa?</b>\n` +
+          `<b>monto</b> — cuánto pagaste\n` +
+          `<b>en qué se gastó</b> — qué compraste (super, nafta, cena)\n` +
+          `<b>quién pagó</b> — tu nombre o el de quien pagó\n` +
+          `<b>para quién es</b> — Hogar, Lu, Facu o Fran\n` +
+          `<b>rubro</b> — la categoría ( salud, ocio, comida...)\n` +
+          `<b>comercio</b> — dónde compraste (Ancap, Devoto, etc.)\n` +
+          `<b>medio de pago</b> — Efectivo, Débito, Crédito o Transferencia\n\n` +
+          `<b>Tus rubros:</b>\n${allCats}\n\n` +
+          `<b>Otros comandos:</b>\n` +
           `💚 <code>/ingreso 50000 Sueldo @facu</code>\n` +
           `💰 <code>/ahorro 5000 Ahorro mensual</code>\n` +
-          `📊 /saldo — te muestro el balance del mes\n` +
-          `🤍 /ayuda — esta ayudita\n\n` +
+          `📊 /saldo — balance del mes\n\n` +
           `Cualquier cosa, acá estoy 🌷`
         );
         return new Response('OK');
@@ -897,7 +905,7 @@ export default {
           group: ''
         };
 
-        // Iniciar flujo para completar grupo y corresponde a.
+        // Iniciar flujo para completar rubro y corresponde a.
         profiles._sessions = profiles._sessions || {};
         profiles._sessions[String(chatId)] = { expense, step: 'confirm', month };
         await writeProfiles(env.FIREBASE_PROJECT, env.FIREBASE_USER_ID, token, profiles, activeId);
@@ -1059,7 +1067,7 @@ export default {
               session.step = 'group'; session.returnToReview = true;
               profiles._sessions[sessionKey] = session;
               await writeProfiles(env.FIREBASE_PROJECT, env.FIREBASE_USER_ID, token, profiles, activeId);
-              await sendMessage(env.BOT_TOKEN, chatId, `🏷️ ¿Grupo?`, groupKeyboard(profile));
+              await sendMessage(env.BOT_TOKEN, chatId, `🏷️ ¿Rubro?`, groupKeyboard(profile));
               return new Response('OK');
             }
             if (text === '__edit_commerce') {
@@ -1119,7 +1127,7 @@ export default {
             session.step = 'group';
             profiles._sessions[sessionKey] = session;
             await writeProfiles(env.FIREBASE_PROJECT, env.FIREBASE_USER_ID, token, profiles, activeId);
-            await sendMessage(env.BOT_TOKEN, chatId, `🏷️ ¿Grupo?`, groupKeyboard(profile));
+            await sendMessage(env.BOT_TOKEN, chatId, `🏷️ ¿Rubro?`, groupKeyboard(profile));
             return new Response('OK');
           }
           if (session.step === 'group') {
@@ -1217,7 +1225,17 @@ export default {
             return new Response('OK');
           }
           await sendMessage(env.BOT_TOKEN, chatId,
-            '🌸 Mmm, no entendí del todo. Probá así:\\n<code>[monto] [categoría] [quién]</code>\\nEj: <code>850 super facu</code>\\n\\n📸 O mandame una foto del ticket y yo me encargo 💕'
+            '🌸 Mmm, no entendí bien. Los gastos van así:\n\n' +
+            '<b>Formato completo:</b>\n' +
+            '<code>[monto] [en qué se gastó] [quién pagó] [para quién es] [rubro] [comercio] [medio de pago]</code>\n\n' +
+            '<b>Obligatorios:</b> monto y en qué se gastó.\n' +
+            'El resto es opcional — si lo omitís te pregunto paso a paso.\n\n' +
+            '<b>Ejemplos:</b>\n' +
+            '• <code>850 super facu</code> (mínimo)\n' +
+            '• <code>1200 farmacia lu hogar salud</code>\n' +
+            '• <code>2500 nafta facu auto ancap débito</code>\n' +
+            '• <code>3400 cena facu y lu hogar ocio la pasiva efectivo</code> (completo)\n\n' +
+            '📸 O mandame una foto del ticket y yo me encargo 💕'
           );
           return new Response('OK');
         }
