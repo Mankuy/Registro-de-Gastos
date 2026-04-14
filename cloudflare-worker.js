@@ -100,7 +100,8 @@ function addExpense(profiles, activeId, month, expense) {
     commerce: expense.commerce || '',
     paymentMethod: expense.paymentMethod || '',
     group: expense.group || '',
-    date: expense.date || today
+    date: expense.date || today,
+    dueDay: (typeof expense.dueDay === 'number' && expense.dueDay >= 1 && expense.dueDay <= 31) ? expense.dueDay : 0
   });
 }
 
@@ -621,7 +622,7 @@ async function parseExpenseWithAI(text, peopleCtx, groupLabels, apiKey) {
   const membersList = (peopleCtx?.members || []).join(', ') || '(ninguno)';
   const sys = `Sos un parser de gastos familiares en español uruguayo.
 Extraé del mensaje libre un JSON con estos campos:
-{"amount": number, "name": string, "who": string[], "belongsTo": string, "group": string, "commerce": string, "paymentMethod": string}
+{"amount": number, "name": string, "who": string[], "belongsTo": string, "group": string, "commerce": string, "paymentMethod": string, "dueDay": number}
 
 Reglas:
 - "amount" en pesos uruguayos (solo número).
@@ -631,13 +632,14 @@ Reglas:
 - "group" la categoría: "Comida", "Salud", "Ocio", "Vehículo", "Gastos Fijos", "Animales", "Afuera", "Farmacia", "Personal Lu", "Personal Facu", "Personal Fran", "Familia", "Ahorro", "Otros".
 - "commerce" nombre del comercio (ej: "El Naranjo", "Ancap", "Devoto", "Farmacia San José").
 - "paymentMethod" medio de pago: "Efectivo", "Débito", "Crédito", "Transferencia", "Mercado Pago".
+- "dueDay" día de vencimiento del mes (1 a 31). Buscá patrones como "vence [n]", "vencimiento [n]", "día [n]", "[n] de". Si no hay info de vencimiento, poné 0.
 
 Ejemplos de parsing:
-- "850 super facu" → {"amount":850, "name":"Super", "who":["Facu"], "belongsTo":"", "group":"Comida", "commerce":"", "paymentMethod":""}
-- "1200 farmacia lu hogar salud" → {"amount":1200, "name":"Farmacia", "who":["Lu"], "belongsTo":"Hogar", "group":"Salud", "commerce":"", "paymentMethod":""}
-- "1141 Surtido Lu Hogar Comida El Naranjo Débito" → {"amount":1141, "name":"Surtido", "who":["Lu"], "belongsTo":"Hogar", "group":"Comida", "commerce":"El Naranjo", "paymentMethod":"Débito"}
-- "2500 nafta facu auto ancap débito" → {"amount":2500, "name":"Nafta", "who":["Facu"], "belongsTo":"", "group":"Vehículo", "commerce":"Ancap", "paymentMethod":"Débito"}
-- "3400 cena facu y lu hogar ocio la pasiva efectivo" → {"amount":3400, "name":"Cena", "who":["Facu","Lu"], "belongsTo":"Hogar", "group":"Ocio", "commerce":"La Pasiva", "paymentMethod":"Efectivo"}
+- "850 super facu" → {"amount":850, "name":"Super", "who":["Facu"], "belongsTo":"", "group":"Comida", "commerce":"", "paymentMethod":"", "dueDay":0}
+- "1200 farmacia lu hogar salud" → {"amount":1200, "name":"Farmacia", "who":["Lu"], "belongsTo":"Hogar", "group":"Salud", "commerce":"", "paymentMethod":"", "dueDay":0}
+- "1141 Surtido Lu Hogar Comida El Naranjo Débito" → {"amount":1141, "name":"Surtido", "who":["Lu"], "belongsTo":"Hogar", "group":"Comida", "commerce":"El Naranjo", "paymentMethod":"Débito", "dueDay":0}
+- "2500 nafta facu auto ancap débito" → {"amount":2500, "name":"Nafta", "who":["Facu"], "belongsTo":"", "group":"Vehículo", "commerce":"Ancap", "paymentMethod":"Débito", "dueDay":0}
+- "3400 cena facu y lu hogar ocio la pasiva efectivo" → {"amount":3400, "name":"Cena", "who":["Facu","Lu"], "belongsTo":"Hogar", "group":"Ocio", "commerce":"La Pasiva", "paymentMethod":"Efectivo", "dueDay":0}
 
 Si un campo no aparece, devolvé vacío ("" o [] según corresponda; 0 si es amount).
 Respondé SOLO con el JSON, sin texto adicional, sin markdown.`;
@@ -1198,7 +1200,8 @@ export default {
               belongsTo: resolveBelongsTo(ai.belongsTo, members),
               commerce: ai.commerce || '',
               paymentMethod: ai.paymentMethod || '',
-              group: resolveGroupKey(ai.group || '', profile)
+              group: resolveGroupKey(ai.group || '', profile),
+              dueDay: (typeof ai.dueDay === 'number' && ai.dueDay >= 1 && ai.dueDay <= 31) ? ai.dueDay : 0
             };
             if (matchedWho.length >= 2) {
               pending._splitMembers = matchedWho;
