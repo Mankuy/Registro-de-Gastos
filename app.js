@@ -132,6 +132,7 @@ function _activeIdKey(uid) { return 'hogar_active_id_' + uid; }
 
 let currentUserId = null;
 let _pendingWelcome = null;
+let _moneyRevealed = false;
 
 // ════════════════════════════════════════════════════════════
 //  PROFILE / STATE
@@ -1837,7 +1838,7 @@ function renderMain() {
 function renderSummaryHTML(totalIncome, totalExpense, balance) {
   const savTotal = totalSavings();
   return `
-    <div class="summary">
+    <div class="summary" onclick="toggleMoneyReveal()" style="cursor:pointer" title="Clic para ${_moneyRevealed ? 'ocultar' : 'mostrar'} montos">
       <div class="summary-card income">
         <span class="label">Ingresos</span>
         <span class="amount" id="sum-income">${fmt(totalIncome)}</span>
@@ -3411,6 +3412,7 @@ function showToast(msg, duration) {
 }
 
 function fmt(n) {
+  if (!_moneyRevealed) return '****';
   const num = parseFloat(n) || 0;
   if (num === 0) return '—';
   return '$' + num.toLocaleString('es-UY', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
@@ -3421,10 +3423,17 @@ function sum(arr) {
   return arr.reduce((acc, r) => acc + (parseFloat(r.value) || 0), 0);
 }
 
+function toggleMoneyReveal() {
+  _moneyRevealed = !_moneyRevealed;
+  updateSummaryCards();
+  debouncedLiveUpdate();
+}
+
 // ════════════════════════════════════════════════════════════
 //  GLOBAL EXPORTS (para inline HTML handlers)
 // ════════════════════════════════════════════════════════════
 
+window.toggleMoneyReveal    = toggleMoneyReveal;
 window.switchMonth           = switchMonth;
 window.openAddMonthModal     = openAddMonthModal;
 window.openAddRowModal       = openAddRowModal;
