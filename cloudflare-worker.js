@@ -846,8 +846,8 @@ export default {
         await sendMessage(env.BOT_TOKEN, chatId,
           `¡Holaa! 💕 Soy Clotilda, tu asistente del hogar.\n\n` +
           `✨ <b>Así anotás un gasto:</b>\n` +
-          `<code>[monto] [en qué se gastó] [quién pagó] [para quién es] [rubro] [comercio] [medio de pago]</code>\n\n` +
-          `<b>Obligatorios:</b> monto y en qué se gastó.\n` +
+          `<code>[monto] [en qué se gastó] [quién pagó] [para quién es] [rubro] [comercio] [medio de pago] [vencimiento]</code>\n\n` +
+          `<b>Obligatorios:</b> monto y en qué se gastó. El resto es opcional.\n` +
           `El resto es opcional — si lo omitís te pregunto paso a paso.\n\n` +
           `<b>Ejemplos:</b>\n` +
           `• <code>850 super facu</code>\n` +
@@ -864,7 +864,8 @@ export default {
           `<b>para quién es</b> — Hogar, Lu, Facu o Fran\n` +
           `<b>rubro</b> — la categoría ( salud, ocio, comida...)\n` +
           `<b>comercio</b> — dónde compraste (Ancap, Devoto, etc.)\n` +
-          `<b>medio de pago</b> — Efectivo, Débito, Crédito o Transferencia\n\n` +
+          `<b>medio de pago</b> — Efectivo, Débito, Crédito o Transferencia\n` +
+          `<b>vencimiento</b> — día del mes (ej: 24) para marcar cuándo vence ese gasto\n\n` +
           `<b>Tus rubros:</b>\n${allCats}\n\n` +
           `<b>Otros comandos:</b>\n` +
           `💚 <code>/ingreso 50000 Sueldo @facu</code>\n` +
@@ -1006,13 +1007,13 @@ export default {
           await sendMessage(env.BOT_TOKEN, chatId,
             '🌸 ¡Hola! Soy Clotilda 💕\n\n' +
             '✨ <b>Formato de una carga completa:</b>\n' +
-            '<code>[monto] [en qué se gastó] [quién pagó] [para quién es] [rubro] [comercio] [medio de pago]</code>\n\n' +
+            '<code>[monto] [en qué se gastó] [quién pagó] [para quién es] [rubro] [comercio] [medio de pago] [vencimiento]</code>\n\n' +
             '<b>Obligatorios:</b> monto y en qué se gastó. El resto es opcional — si lo omitís te lo pregunto paso a paso.\n\n' +
             '<b>Ejemplos:</b>\n' +
             '• <code>850 super facu</code> (mínimo)\n' +
             '• <code>1200 farmacia lu hogar salud</code>\n' +
             '• <code>2500 nafta facu auto ancap débito</code>\n' +
-            '• <code>3400 cena facu y lu hogar ocio la pasiva efectivo</code> (completo)\n\n' +
+            '• <code>3400 cena facu y lu hogar ocio la pasiva efectivo 24</code> (con vencimiento)\n\n' +
             '📸 Mandame una foto del ticket y lo leo por vos\n' +
             '📄 También leo PDFs (UTE, OSE, etc.)\n' +
             '🎤 O una nota de voz y la transcribo\n\n' +
@@ -1240,10 +1241,86 @@ export default {
           const match = text.match(/^(?:\/gasto\s+)?(\d+(?:[.,]\d{1,2})?)\s+(.+)$/i);
           if (match) {
             const monto = parseFloat(match[1].replace(',', '.'));
-            const rawDesc = match[2].trim();
-            const { who, cleanText } = detectMember(rawDesc, members);
-            const desc = cleanText.charAt(0).toUpperCase() + cleanText.slice(1);
-            pending = { name: desc, value: monto, who, belongsTo: '', commerce: '', paymentMethod: '', group: '' };
+            const rawText = match[2].trim();
+
+            // Intenta parsear todos los campos: desc quién belongsTo grupo comercio método vencimiento
+            const parts = rawText.split(/\s+/);
+            let desc = '';
+            let who = '';
+            let belongsTo = '';
+            let group = '';
+            let commerce = '';
+            let paymentMethod = '';
+            let dueDay = '';
+
+            // Primero detecta miembro en el texto completo
+            const { who: detectedWho, cleanText } = detectMember(rawText, members);
+
+            // Si encontró miembro, lo usa como punto de partida
+            if (detectedWho) {
+              who = detectedWho;
+              desc = cleanText.charAt(0).toUpperCase() + cleanText.slice(1);
+            } else {
+              // Si no, usa la primera palabra como descripción
+              desc = parts[0].charAt(0).toUpperCase() + parts[0].slice(1);
+            }
+
+            // Intenta extraer campos adicionales de los siguientes tokens
+            const remainingText = detectedWho ? rawText.substring(rawText.indexOf(detectedWho) + detectedWho.length).trim() : parts.slice(1).join(' ');
+            const tokens = remainingText.split(/\s+/).filter(t => t.length > 0);
+
+            // Mapea palabras clave conocidas
+            const allGroups = groups.map(g => g.name.toLowerCase());
+            const paymentMethods = ['efectivo', 'débito', 'crédito', 'transferencia', 'mercado', 'mp'];
+            const dueDayKeywords = ['vencimiento', 'vence', 'día'];
+
+            for (let idx = 0; idx < tokens.length; idx++) {
+              const token = tokens[idx];
+              const lower = token.toLowerCase();
+              const nextToken = tokens[idx + 1];
+
+              // Detecta vencimiento (busca "vencimiento 24", "vence 24", "día 24", o solo "24" al final)
+              if (dueDayKeywords.some(kw => lower.includes(kw)) && nextToken && /^\d{1,2}$/.test(nextToken)) {
+                dueDay = nextToken;
+                idx++; // Salta el próximo token que ya procesamos
+              } else if (/^\d{1,2}$/.test(token) && idx === tokens.length - 1 && !dueDay) {
+                // Si es un número al final y no detectamos vencimiento aún, lo asume como vencimiento
+                dueDay = token;
+              }
+              // Detecta grupo (incluyendo multi-palabra como "gastos fijos")
+              else if (allGroups.includes(lower)) {
+                group = lower;
+              } else if (lower === 'gastos' && nextToken && nextToken.toLowerCase() === 'fijos') {
+                group = 'fijos';
+                idx++; // Salta el próximo token
+              }
+              // Detecta método de pago (maneja typos como "tranferencia")
+              else if (paymentMethods.some(pm => lower.replace('á', 'a').replace('é', 'e').includes(pm.replace(' ', '')))) {
+                paymentMethod = token.charAt(0).toUpperCase() + token.slice(1);
+              }
+              // Detecta otro miembro como "a quién corresponde"
+              else if (members.includes(lower)) {
+                if (!belongsTo && lower !== who.toLowerCase()) {
+                  belongsTo = lower;
+                }
+                // Si ya tiene belongsTo, ignora miembros posteriores
+              }
+              // Si es un token sin clasificación, lo asume como comercio si no hay otro
+              else if (!commerce && token.length > 2) {
+                commerce = token;
+              }
+            }
+
+            pending = {
+              name: desc,
+              value: monto,
+              who,
+              belongsTo,
+              commerce,
+              paymentMethod,
+              group,
+              dueDay: dueDay ? parseInt(dueDay) : undefined
+            };
           }
         }
 
@@ -1254,9 +1331,12 @@ export default {
             return new Response('OK');
           }
           await sendMessage(env.BOT_TOKEN, chatId,
-            '🌸 No te entendí. Para un gasto necesito monto y qué fue:\n\n' +
-            '• <code>850 super facu</code>\n' +
-            '• <code>1200 farmacia lu salud</code>\n\n' +
+            '🌸 No te entendí del todo. Para un gasto necesito monto y qué fue. El resto es opcional:\n\n' +
+            '<code>[monto] [qué] [quién] [a quién] [rubro] [comercio] [medio de pago] [vencimiento]</code>\n\n' +
+            '<b>Ejemplos:</b>\n' +
+            '• <code>850 super facu</code> (mínimo)\n' +
+            '• <code>1200 farmacia lu salud</code>\n' +
+            '• <code>2239 tarjetadolares facu facu gastos fijos mastercard transferencia 24</code> (completo)\n\n' +
             '📸 O mandame una foto del ticket.\n' +
             'ℹ️ <code>/ayuda</code> para la guía completa.'
           );
