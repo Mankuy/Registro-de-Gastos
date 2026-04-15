@@ -998,6 +998,21 @@ export default {
       if (msg.text) {
         const text = msg.text.trim();
 
+        // Saludo/texto genérico: mini-ayuda corta (funciona incluso dentro de una sesión activa,
+        // así no se consume "hola" como respuesta a un paso y el usuario queda atascado).
+        const lowerTxt = text.toLowerCase();
+        const isGreeting = /^(hola+|holi+s?|holaa+|hey|buenas|buen[oa]s? (d[ií]as?|tardes|noches)|help|ayuda|\?+)$/i.test(lowerTxt);
+        if (isGreeting) {
+          await sendMessage(env.BOT_TOKEN, chatId,
+            '🌸 ¡Hola! Para anotar un gasto decime el monto y qué fue:\n\n' +
+            '• <code>850 super facu</code>\n' +
+            '• <code>1200 farmacia lu salud</code>\n\n' +
+            '📸 O mandame una foto del ticket y lo leo yo.\n' +
+            'ℹ️ <code>/ayuda</code> para la guía completa · <code>/cancelar</code> si estás a mitad de una carga.'
+          );
+          return new Response('OK');
+        }
+
         // Sesiones conversacionales (completar datos de un gasto)
         profiles._sessions = profiles._sessions || {};
         const sessionKey = String(chatId);
@@ -1231,17 +1246,11 @@ export default {
             return new Response('OK');
           }
           await sendMessage(env.BOT_TOKEN, chatId,
-            '🌸 Mmm, no entendí bien. Los gastos van así:\n\n' +
-            '<b>Formato completo:</b>\n' +
-            '<code>[monto] [en qué se gastó] [quién pagó] [para quién es] [rubro] [comercio] [medio de pago]</code>\n\n' +
-            '<b>Obligatorios:</b> monto y en qué se gastó.\n' +
-            'El resto es opcional — si lo omitís te pregunto paso a paso.\n\n' +
-            '<b>Ejemplos:</b>\n' +
-            '• <code>850 super facu</code> (mínimo)\n' +
-            '• <code>1200 farmacia lu hogar salud</code>\n' +
-            '• <code>2500 nafta facu auto ancap débito</code>\n' +
-            '• <code>3400 cena facu y lu hogar ocio la pasiva efectivo</code> (completo)\n\n' +
-            '📸 O mandame una foto del ticket y yo me encargo 💕'
+            '🌸 No te entendí. Para un gasto necesito monto y qué fue:\n\n' +
+            '• <code>850 super facu</code>\n' +
+            '• <code>1200 farmacia lu salud</code>\n\n' +
+            '📸 O mandame una foto del ticket.\n' +
+            'ℹ️ <code>/ayuda</code> para la guía completa.'
           );
           return new Response('OK');
         }
