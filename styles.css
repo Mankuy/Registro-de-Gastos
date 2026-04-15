@@ -494,6 +494,34 @@ body {
 .summary-card.balance .amount { color: var(--primary); }
 .summary-card.savings .amount { color: var(--savings); }
 
+/* Cuando los montos están ocultos, atenuamos y damos letter-spacing a las viñetas */
+.summary-card .amount:not([style*="color"]),
+.summary-card .amount { transition: letter-spacing 0.15s, opacity 0.15s; }
+
+/* Botón 👁️/🙈 para ocultar/mostrar montos */
+.btn-money-toggle {
+  position: absolute;
+  top: -12px;
+  right: -6px;
+  z-index: 2;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--card);
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+  transition: transform 0.15s, background 0.15s;
+  padding: 0;
+}
+.btn-money-toggle:hover { transform: scale(1.08); background: var(--bg); }
+.btn-money-toggle:active { transform: scale(0.95); }
+
 /* ════════════════════════════════════════════════════════════
    SECTION CARDS
 ════════════════════════════════════════════════════════════ */

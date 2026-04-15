@@ -101,7 +101,8 @@ function addExpense(profiles, activeId, month, expense) {
     paymentMethod: expense.paymentMethod || '',
     group: expense.group || '',
     date: expense.date || today,
-    dueDay: (typeof expense.dueDay === 'number' && expense.dueDay >= 1 && expense.dueDay <= 31) ? expense.dueDay : 0
+    dueDay: (typeof expense.dueDay === 'number' && expense.dueDay >= 1 && expense.dueDay <= 31) ? expense.dueDay : 0,
+    dueFreq: expense.group === 'fijos' ? (expense.dueFreq || 'mensual') : ''
   });
 }
 
@@ -189,7 +190,9 @@ function finalizeExpense(profiles, activeId, month, expense) {
         commerce: expense.commerce || '',
         paymentMethod: expense.paymentMethod || '',
         group: expense.group || '',
-        date: expense.date || today
+        date: expense.date || today,
+        dueDay: (typeof expense.dueDay === 'number' && expense.dueDay >= 1 && expense.dueDay <= 31) ? expense.dueDay : 0,
+        dueFreq: expense.group === 'fijos' ? (expense.dueFreq || 'mensual') : ''
       });
     });
   } else {

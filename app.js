@@ -345,7 +345,7 @@ function runMigrationIfNeeded(userId) {
     commerces:old.commerces || DEFAULT_COMMERCES.slice(),
     apiKey:   old.apiKey    || '',
     currentMonth: old.currentMonth || null,
-    collapsed: { income: false, expense: false, insights: false },
+    collapsed: { income: true, expense: true, insights: true, savings: true },
     _incomeDefaults:  FAMILIA_INCOME_ROWS,
     _expenseDefaults: FAMILIA_EXPENSE_ROWS
   };
@@ -380,7 +380,7 @@ function _buildDefaultProfile(id, name) {
     commerces: DEFAULT_COMMERCES.slice(),
     apiKey:    '',
     currentMonth: null,
-    collapsed: { income: false, expense: false, insights: false },
+    collapsed: { income: true, expense: true, insights: true, savings: true },
     _incomeDefaults:  FAMILIA_INCOME_ROWS,
     _expenseDefaults: FAMILIA_EXPENSE_ROWS
   };
@@ -442,7 +442,8 @@ function activateProfile(id, doSave = true) {
   if (!state.commerces) state.commerces = DEFAULT_COMMERCES.slice();
   if (!state.apiKey)    state.apiKey    = '';
   if (!state.months)    state.months    = {};
-  if (!state.collapsed) state.collapsed = { income: false, expense: false, insights: false };
+  // Siempre arrancamos con las secciones minimizadas — la preferencia no se persiste entre sesiones
+  state.collapsed = { income: true, expense: true, insights: true, savings: true };
   if (!state.savings)   state.savings   = [];
 
   // Restaurar mes activo
@@ -489,7 +490,7 @@ function createProfile(name, templateType) {
     commerces: DEFAULT_COMMERCES.slice(),
     apiKey:    state.apiKey || '',
     currentMonth: null,
-    collapsed: { income: false, expense: false, insights: false },
+    collapsed: { income: true, expense: true, insights: true, savings: true },
     _incomeDefaults:  INCOME_MAP[templateType]  || [],
     _expenseDefaults: EXPENSE_MAP[templateType] || []
   };
@@ -1093,7 +1094,7 @@ function renderSavingsSection() {
 // ════════════════════════════════════════════════════════════
 
 function toggleSection(name) {
-  if (!state.collapsed) state.collapsed = { income: false, expense: false, insights: false };
+  if (!state.collapsed) state.collapsed = { income: true, expense: true, insights: true, savings: true };
   state.collapsed[name] = !state.collapsed[name];
   saveState();
 
@@ -1837,8 +1838,13 @@ function renderMain() {
 
 function renderSummaryHTML(totalIncome, totalExpense, balance) {
   const savTotal = totalSavings();
+  const eyeIcon = _moneyRevealed ? '🙈' : '👁️';
+  const eyeTitle = _moneyRevealed ? 'Ocultar montos' : 'Mostrar montos';
   return `
-    <div class="summary" onclick="toggleMoneyReveal()" style="cursor:pointer" title="Clic para ${_moneyRevealed ? 'ocultar' : 'mostrar'} montos">
+    <div class="summary" onclick="toggleMoneyReveal()" style="cursor:pointer;position:relative" title="Clic para ${_moneyRevealed ? 'ocultar' : 'mostrar'} montos">
+      <button type="button" class="btn-money-toggle" id="btn-money-toggle"
+        onclick="event.stopPropagation();toggleMoneyReveal()"
+        title="${eyeTitle}">${eyeIcon}</button>
       <div class="summary-card income">
         <span class="label">Ingresos</span>
         <span class="amount" id="sum-income">${fmt(totalIncome)}</span>
@@ -1980,19 +1986,21 @@ function renderTable(type, rows) {
       const day = d + 1;
       return `<option value="${day}"${row.dueDay == day ? ' selected' : ''}>${day}</option>`;
     }).join('');
-    const dueCell = isFijo
+    // Mostramos el día de vencimiento para cualquier gasto (no solo fijos).
+    // La frecuencia (mensual/bimensual) sí queda reservada a gastos fijos porque implica recurrencia.
+    const dueCell = isExpense
       ? `<td>
            <div style="display:flex;align-items:center;gap:3px;">
              <select class="table-select" style="width:55px" onchange="updateDueDay(${i},this.value)" title="Día de vencimiento">
                <option value="0"${!row.dueDay ? ' selected' : ''}>—</option>
                ${dueDayOpts}
              </select>
-             <select class="table-select" style="width:70px;font-size:0.68rem" onchange="updateDueFreq(${i},this.value)" title="Frecuencia">
+             ${isFijo ? `<select class="table-select" style="width:70px;font-size:0.68rem" onchange="updateDueFreq(${i},this.value)" title="Frecuencia">
                <option value="mensual"${(row.dueFreq || 'mensual') === 'mensual' ? ' selected' : ''}>Mens.</option>
                <option value="bimensual"${row.dueFreq === 'bimensual' ? ' selected' : ''}>Bimens.</option>
-             </select>
+             </select>` : ''}
            </div>
-         </td>` : (isExpense ? '<td></td>' : '');
+         </td>` : '';
 
     const amountCell = `
       <td>
@@ -2046,6 +2054,7 @@ function updateSummaryCards() {
   const elIncome  = document.getElementById('sum-income');
   const elExpense = document.getElementById('sum-expense');
   const elBalance = document.getElementById('sum-balance');
+  const elSavings = document.getElementById('sum-savings');
 
   if (elIncome)  elIncome.textContent  = fmt(totalIncome);
   if (elExpense) elExpense.textContent = fmt(totalExpense);
@@ -2053,6 +2062,12 @@ function updateSummaryCards() {
     elBalance.textContent = fmt(balance);
     elBalance.style.color = balance < 0 ? 'var(--expense)' : 'var(--primary-dark)';
   }
+  if (elSavings) elSavings.textContent = fmt(totalSavings());
+
+  // Refrescar el total de la sección Ahorro (si está renderizada)
+  document.querySelectorAll('.savings-total-amount').forEach(el => {
+    el.textContent = fmt(totalSavings());
+  });
 
   document.querySelectorAll('.total-row').forEach(tr => {
     const incomeCell  = tr.querySelector('.total-income');
@@ -3052,14 +3067,16 @@ function openAddRowModal(type, editIndex) {
       <input type="text" id="modal-row-payment" placeholder="Ej: Efectivo, Débito, Crédito..." />
       <label class="field-label" for="modal-row-group">Grupo</label>
       <select id="modal-row-group">${groupOpts}</select>
-      <div id="due-date-fields" style="${(isEdit && existing && existing.group === 'fijos') ? '' : 'display:none;'}">
+      <div id="due-date-fields">
         <label class="field-label" for="modal-row-due-day">📅 Día de vencimiento</label>
         <select id="modal-row-due-day">${dueDayOpts}</select>
-        <label class="field-label" for="modal-row-due-freq">🔄 Frecuencia</label>
-        <select id="modal-row-due-freq">
-          <option value="mensual" ${currentDueFreq !== 'bimensual' ? 'selected' : ''}>Mensual</option>
-          <option value="bimensual" ${currentDueFreq === 'bimensual' ? 'selected' : ''}>Bimensual</option>
-        </select>
+        <div id="due-freq-wrap" style="${(isEdit && existing && existing.group === 'fijos') ? '' : 'display:none;'}">
+          <label class="field-label" for="modal-row-due-freq">🔄 Frecuencia</label>
+          <select id="modal-row-due-freq">
+            <option value="mensual" ${currentDueFreq !== 'bimensual' ? 'selected' : ''}>Mensual</option>
+            <option value="bimensual" ${currentDueFreq === 'bimensual' ? 'selected' : ''}>Bimensual</option>
+          </select>
+        </div>
       </div>
     `;
   }
@@ -3101,7 +3118,8 @@ function openAddRowModal(type, editIndex) {
           state.commerces.push(commerce);
           updateCommercesDatalist();
         }
-        row = { name, value, who, belongsTo, commerce, paymentMethod, group, date: existingDate, dueDay, dueFreq: dueDay > 0 ? dueFreq : '' };
+        // La frecuencia solo aplica a gastos fijos (recurrentes). Un gasto puntual con vencimiento no se repite.
+        row = { name, value, who, belongsTo, commerce, paymentMethod, group, date: existingDate, dueDay, dueFreq: (dueDay > 0 && group === 'fijos') ? dueFreq : '' };
       } else {
         row = { name, value, who, belongsTo, date: existingDate };
       }
@@ -3178,12 +3196,13 @@ function openAddRowModal(type, editIndex) {
     chks.forEach(c => c.addEventListener('change', updateSplitPreview));
     if (valInput) valInput.addEventListener('input', updateSplitPreview);
 
-    // Show/hide due date fields when group changes to/from 'fijos'
+    // El día de vencimiento está disponible para cualquier gasto. La frecuencia (mensual/bimensual)
+    // sólo se muestra para gastos fijos porque implica recurrencia.
     const groupSelect = document.getElementById('modal-row-group');
-    const dueFields = document.getElementById('due-date-fields');
-    if (groupSelect && dueFields) {
+    const dueFreqWrap = document.getElementById('due-freq-wrap');
+    if (groupSelect && dueFreqWrap) {
       groupSelect.addEventListener('change', function () {
-        dueFields.style.display = this.value === 'fijos' ? '' : 'none';
+        dueFreqWrap.style.display = this.value === 'fijos' ? '' : 'none';
       });
     }
     // Prefill due date if editing
@@ -3412,7 +3431,7 @@ function showToast(msg, duration) {
 }
 
 function fmt(n) {
-  if (!_moneyRevealed) return '****';
+  if (!_moneyRevealed) return '$ ••••';
   const num = parseFloat(n) || 0;
   if (num === 0) return '—';
   return '$' + num.toLocaleString('es-UY', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
@@ -3425,6 +3444,14 @@ function sum(arr) {
 
 function toggleMoneyReveal() {
   _moneyRevealed = !_moneyRevealed;
+  // Actualizar el botón 👁️/🙈 y el tooltip del contenedor
+  const btn = document.getElementById('btn-money-toggle');
+  if (btn) {
+    btn.textContent = _moneyRevealed ? '🙈' : '👁️';
+    btn.title = _moneyRevealed ? 'Ocultar montos' : 'Mostrar montos';
+  }
+  const summary = document.querySelector('.summary');
+  if (summary) summary.title = `Clic para ${_moneyRevealed ? 'ocultar' : 'mostrar'} montos`;
   updateSummaryCards();
   debouncedLiveUpdate();
 }
