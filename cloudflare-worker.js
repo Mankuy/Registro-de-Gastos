@@ -480,11 +480,15 @@ async function downloadTelegramPhoto(botToken, fileId) {
 async function sendMessage(botToken, chatId, text, replyMarkup) {
   const body = { chat_id: chatId, text, parse_mode: 'HTML' };
   if (replyMarkup) body.reply_markup = replyMarkup;
-  await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+  const resp = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body)
   });
+  if (!resp.ok) {
+    const errBody = await resp.text().catch(() => '');
+    console.error(`sendMessage FAILED: ${resp.status} ${resp.statusText} — ${errBody}`);
+  }
 }
 
 // ── Helpers de teclados inline ──────────────────────────
@@ -691,6 +695,21 @@ export default {
       if (!msg) return new Response('OK');
 
       const chatId = msg.chat.id;
+
+      // /miid — responde con el chat ID antes del filtro de autorización
+      if (msg.text && msg.text.trim() === '/miid') {
+        await sendMessage(env.BOT_TOKEN, chatId, `Tu chat ID es: <code>${chatId}</code>`);
+        return new Response('OK');
+      }
+
+      // /debug — temporal: muestra ALLOWED_CHAT_ID configurado
+      if (msg.text && msg.text.trim() === '/debug') {
+        const allowedRaw = env.ALLOWED_CHAT_ID || '(vacío)';
+        await sendMessage(env.BOT_TOKEN, chatId,
+          `🔍 <b>Debug</b>\nTu chat ID: <code>${chatId}</code>\nALLOWED_CHAT_ID: <code>${allowedRaw}</code>\nBOT_TOKEN OK: <code>${!!env.BOT_TOKEN}</code>`
+        );
+        return new Response('OK');
+      }
 
       // Verificar chat autorizado (si está configurado)
       const allowedIds = (env.ALLOWED_CHAT_ID || '').split(',').map(s => s.trim()).filter(Boolean);
@@ -1220,7 +1239,9 @@ export default {
             rawWho = rawWho.flatMap(w => String(w).split(/\s*(?:,|;|\/|\+|\s+y\s+|\s+e\s+)\s*/i)).filter(Boolean);
             const matchedWho = [...new Set(rawWho.map(w => matchMember(w, contributors)).filter(Boolean))];
             const whoField = matchedWho.join(', ');
-            pending = {
+            // Validar que tenga monto válido y nombre — sino descartar
+            if (Number(ai.amount) > 0 && String(ai.name || '').trim().length > 0) {
+              pending = {
               name: String(ai.name).trim(),
               value: Number(ai.amount) || 0,
               who: whoField || (matchedWho[0] || ''),
@@ -1233,6 +1254,7 @@ export default {
             if (matchedWho.length >= 2) {
               pending._splitMembers = matchedWho;
             }
+            } // cierra if (amount > 0 && name)
           }
         }
 
@@ -1331,14 +1353,19 @@ export default {
             return new Response('OK');
           }
           await sendMessage(env.BOT_TOKEN, chatId,
-            '🌸 No te entendí del todo. Para un gasto necesito monto y qué fue. El resto es opcional:\n\n' +
-            '<code>[monto] [qué] [quién] [a quién] [rubro] [comercio] [medio de pago] [vencimiento]</code>\n\n' +
+            '🌸 ¡Hola! Soy Clotilda 💕\n\n' +
+            '✨ <b>Formato de una carga completa:</b>\n' +
+            '<code>[monto] [en qué se gastó] [quién pagó] [para quién es] [rubro] [comercio] [medio de pago]</code>\n\n' +
+            '<b>Obligatorios:</b> monto y en qué se gastó. El resto es opcional — si lo omitís te lo pregunto paso a paso.\n\n' +
             '<b>Ejemplos:</b>\n' +
             '• <code>850 super facu</code> (mínimo)\n' +
-            '• <code>1200 farmacia lu salud</code>\n' +
-            '• <code>2239 tarjetadolares facu facu gastos fijos mastercard transferencia 24</code> (completo)\n\n' +
-            '📸 O mandame una foto del ticket.\n' +
-            'ℹ️ <code>/ayuda</code> para la guía completa.'
+            '• <code>1200 farmacia lu hogar salud</code>\n' +
+            '• <code>2500 nafta facu auto ancap débito</code>\n' +
+            '• <code>3400 cena facu y lu hogar ocio la pasiva efectivo</code> (completo)\n\n' +
+            '📸 Mandame una foto del ticket y lo leo por vos\n' +
+            '📄 También leo PDFs (UTE, OSE, etc.)\n' +
+            '🎤 O una nota de voz y la transcribo\n\n' +
+            'ℹ️ <code>/ayuda</code> para la guía completa con glosario y rubros · <code>/cancelar</code> si estás a mitad de una carga.'
           );
           return new Response('OK');
         }
@@ -1361,16 +1388,16 @@ export default {
       }
 
     } catch (e) {
-      console.error('Worker error:', e.message);
+      console.error('Worker error:', e.message, e.stack);
       try {
         const payload = await request.clone().json();
-        if (payload.message?.chat?.id) {
+        console.error('Failed payload:', JSON.stringify(payload).slice(0, 500));
+        if (payload.message?.chat?.id && env.BOT_TOKEN) {
           await sendMessage(
-            // Can't use env here reliably, but try
-            '', payload.message.chat.id, '❌ Error interno: ' + e.message
+            env.BOT_TOKEN, payload.message.chat.id, '❌ Error interno: ' + e.message
           );
         }
-      } catch (_) {}
+      } catch (_) { console.error('Error in error handler:', _?.message); }
     }
 
     return new Response('OK');

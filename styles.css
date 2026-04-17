@@ -669,7 +669,7 @@ tr:hover .btn-edit-inline { opacity: 1; }
 }
 
 .btn-del {
-  opacity: 0;
+  opacity: 0.6;
   background: none;
   border: none;
   cursor: pointer;
