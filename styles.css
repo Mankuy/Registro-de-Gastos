@@ -742,7 +742,8 @@ td:last-child > div {
   background: transparent;
   color: var(--text);
   transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
-  width: 100px;
+  width: 110px;
+  min-width: 80px;
   text-align: right;
 }
 .amount-input:focus {
