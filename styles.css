@@ -689,6 +689,10 @@ th:last-child, td:last-child {
   right: 0;
   z-index: 2;
   box-shadow: -2px 0 4px -1px rgba(0,0,0,0.12);
+  text-align: center;
+  min-width: 60px;
+  width: 60px;
+  padding: 4px 2px;
 }
 th:last-child {
   background: var(--card);
@@ -696,9 +700,13 @@ th:last-child {
 }
 td:last-child {
   background: var(--card);
+  vertical-align: middle;
 }
 tr:hover td:last-child {
   background: var(--bg-hover, var(--card));
+}
+td:last-child > div {
+  justify-content: center;
 }
 
 .table-select,
