@@ -683,6 +683,22 @@ tr:hover .btn-del { opacity: 1; }
 .btn-del:hover { background: var(--expense-light); }
 @media (hover: none) { .btn-del { opacity: 0.6; } }
 
+/* Columna de acciones sticky a la derecha para que siempre se vea */
+th:last-child, td:last-child {
+  position: sticky;
+  right: 0;
+  z-index: 2;
+}
+th:last-child {
+  background: var(--card);
+}
+td:last-child {
+  background: var(--card);
+}
+tr:hover td:last-child {
+  background: var(--bg-hover, var(--card));
+}
+
 .table-select,
 .table-input {
   border: 1px solid transparent;
