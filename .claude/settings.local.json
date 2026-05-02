@@ -13,7 +13,10 @@
       "Bash(where powershell:*)",
       "Bash(powershell -Command \"Get-Command node,python,python3,php -ErrorAction SilentlyContinue | Select-Object Name,Source\")",
       "Bash(powershell -Command \"Get-ChildItem ''C:\\\\'' -Recurse -Filter ''node.exe'' -ErrorAction SilentlyContinue -Depth 5 | Select-Object -First 3 FullName\")",
-      "Bash(\"C:/Program Files/World Monitor/sidecar/node/node.exe\" --version)"
+      "Bash(\"C:/Program Files/World Monitor/sidecar/node/node.exe\" --version)",
+      "Read(//mnt/d/CLAUDE/**)",
+      "Bash(wrangler deploy *)",
+      "Bash(firebase deploy *)"
     ]
   }
 }

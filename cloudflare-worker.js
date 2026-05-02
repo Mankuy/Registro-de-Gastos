@@ -646,6 +646,7 @@ Ejemplos de parsing:
 - "1200 farmacia lu hogar salud" → {"amount":1200, "name":"Farmacia", "who":["Lu"], "belongsTo":"Hogar", "group":"Salud", "commerce":"", "paymentMethod":"", "dueDay":0}
 - "1141 Surtido Lu Hogar Comida El Naranjo Débito" → {"amount":1141, "name":"Surtido", "who":["Lu"], "belongsTo":"Hogar", "group":"Comida", "commerce":"El Naranjo", "paymentMethod":"Débito", "dueDay":0}
 - "2500 nafta facu auto ancap débito" → {"amount":2500, "name":"Nafta", "who":["Facu"], "belongsTo":"", "group":"Vehículo", "commerce":"Ancap", "paymentMethod":"Débito", "dueDay":0}
+- "530 comida facu facu comida pizzeria débito" → {"amount":530, "name":"Comida", "who":["Facu"], "belongsTo":"Facu", "group":"Comida", "commerce":"Pizzeria", "paymentMethod":"Débito", "dueDay":0}
 - "3400 cena facu y lu hogar ocio la pasiva efectivo" → {"amount":3400, "name":"Cena", "who":["Facu","Lu"], "belongsTo":"Hogar", "group":"Ocio", "commerce":"La Pasiva", "paymentMethod":"Efectivo", "dueDay":0}
 
 Si un campo no aparece, devolvé vacío ("" o [] según corresponda; 0 si es amount).
@@ -1263,7 +1264,7 @@ export default {
           const match = text.match(/^(?:\/gasto\s+)?(\d+(?:[.,]\d{1,2})?)\s+(.+)$/i);
           if (match) {
             const monto = parseFloat(match[1].replace(',', '.'));
-            const rawText = match[2].trim();
+            const rawText = match[2].trim().replace(/,/g, ' ').replace(/\s+/g, ' ').trim();
 
             // Intenta parsear todos los campos: desc quién belongsTo grupo comercio método vencimiento
             const parts = rawText.split(/\s+/);
@@ -1289,7 +1290,7 @@ export default {
 
             // Intenta extraer campos adicionales de los siguientes tokens
             const remainingText = detectedWho ? rawText.substring(rawText.indexOf(detectedWho) + detectedWho.length).trim() : parts.slice(1).join(' ');
-            const tokens = remainingText.split(/\s+/).filter(t => t.length > 0);
+            const tokens = remainingText.split(/[\s,]+/).filter(t => t.length > 0);
 
             // Mapea palabras clave conocidas
             const allGroups = groups.map(g => g.name.toLowerCase());

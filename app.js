@@ -706,9 +706,12 @@ function addMonth(name) {
       if (!row.name || seen.has(row.name)) return;
       // Skip bimensual expenses on odd months
       if (row.dueFreq === 'bimensual' && !isEvenMonth) return;
+      
+      const isFixed = row.group === 'fijos' && row.dueDay;
+      if (!row.dueDay) return; // Solo arrastrar egresos con fecha de vencimiento
+      
       seen.add(row.name);
 
-      const isFixed = row.group === 'fijos' && row.dueDay;
       newExpenses.push({
         name: row.name,
         value: '',  // Always clear the amount
@@ -1380,8 +1383,8 @@ function renderPorPersona() {
     `<button class="month-tab persona-tab${m === porPersonaSelected ? ' active' : ''}" data-persona="${esc(m)}">${esc(m)}</button>`
   ).join('');
 
-  // Collect data across ALL months for this persona
-  const monthKeys = Object.keys(state.months);
+  // Collect data ONLY for the current month
+  const monthKeys = [currentMonth];
   let monthCards = '';
   let grandIncome = 0, grandExpense = 0;
 
@@ -3716,6 +3719,25 @@ async function pollTelegramUpdates(token) {
                     '  Ej: /ahorro 5000 Ahorro mensual\n\n' +
                     '/saldo — Ver balance del mes actual\n' +
                     '/ayuda — Ver este mensaje'
+            })
+          });
+        } catch(e) {}
+        continue;
+      }
+      
+      // Fallback para mensajes de texto que no coinciden con los comandos
+      if (text && !text.startsWith('/miid') && !text.startsWith('/debug')) {
+        try {
+          await fetch('https://api.telegram.org/bot' + token + '/sendMessage', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              chat_id: incomingChatId,
+              text: '⚠️ No reconocí ese comando o formato.\n\n' +
+                    'Por favor, usá el formato correcto, por ejemplo:\n' +
+                    '👉 /gasto 500 Super\n' +
+                    '👉 /ingreso 10000 Sueldo\n\n' +
+                    'Asegurate de incluir el monto y la descripción.'
             })
           });
         } catch(e) {}
