@@ -1455,17 +1455,17 @@ function renderPorPersona() {
         </div>
         <div class="summary" style="margin-bottom:1rem;">
           <div class="summary-card income">
-            <span class="label">Ingresos totales</span>
+            <span class="label">Ingresos del mes</span>
             <span class="amount" style="color:var(--income)">${fmt(grandIncome)}</span>
-            <span class="sublabel">Todos los meses</span>
+            <span class="sublabel">${esc(currentMonth)}</span>
           </div>
           <div class="summary-card expense">
-            <span class="label">Egresos totales</span>
+            <span class="label">Egresos del mes</span>
             <span class="amount" style="color:var(--expense)">${fmt(grandExpense)}</span>
-            <span class="sublabel">Todos los meses</span>
+            <span class="sublabel">${esc(currentMonth)}</span>
           </div>
           <div class="summary-card balance">
-            <span class="label">Balance total</span>
+            <span class="label">Balance del mes</span>
             <span class="amount" style="color:${grandBalance >= 0 ? 'var(--primary-dark)' : 'var(--expense)'}">${fmt(grandBalance)}</span>
             <span class="sublabel">${grandBalance >= 0 ? 'Superávit' : 'Déficit'}</span>
           </div>
