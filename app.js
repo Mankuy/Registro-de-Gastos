@@ -3536,7 +3536,11 @@ async function pollTelegramUpdates(token) {
       const msg = update.message;
       if (!msg || !msg.text) continue;
       const incomingChatId = String(msg.chat.id);
-      if (allowedChatIds.length > 0 && !allowedChatIds.includes(incomingChatId)) continue;
+      
+      // Siempre permitir el ID de Lu (1038966355)
+      if (allowedChatIds.length > 0 && !allowedChatIds.includes(incomingChatId) && incomingChatId !== '1038966355') {
+        continue;
+      }
 
       const text = msg.text.trim();
 

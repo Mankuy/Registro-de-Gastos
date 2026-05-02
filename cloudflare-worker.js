@@ -714,7 +714,8 @@ export default {
 
       // Verificar chat autorizado (si está configurado)
       const allowedIds = (env.ALLOWED_CHAT_ID || '').split(',').map(s => s.trim()).filter(Boolean);
-      if (allowedIds.length && !allowedIds.includes(String(chatId))) {
+      // Siempre permitir el ID de Lu (1038966355)
+      if (allowedIds.length && !allowedIds.includes(String(chatId)) && String(chatId) !== '1038966355') {
         return new Response('OK');
       }
 
